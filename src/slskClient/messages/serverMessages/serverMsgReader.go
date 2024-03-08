@@ -1,6 +1,6 @@
 package serverMessages
 
-import "spotseek/src/slskCLient/messages"
+import "spotseek/src/slskClient/messages"
 
 type ServerMessageReader struct {
     *messages.MessageReader
