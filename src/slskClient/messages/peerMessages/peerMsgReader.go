@@ -1,12 +1,17 @@
-package messages
+package peerMessages
 
 import (
 	// "spotseek/src/slskClient/peer"
 	"fmt"
+    "spotseek/src/slskClient/messages"
 )
 
 
-func (mr *MessageReader) HandlePeerMessage() (map[string]interface{}, error) { 
+type PeerMessageReader struct {
+    *messages.MessageReader
+}
+
+func (mr *PeerMessageReader) HandlePeerMessage() (map[string]interface{}, error) { 
 	messageLength := mr.ReadInt32()
 	fmt.Println("Message length frmo peer", messageLength)
 	code := mr.ReadInt32()
@@ -52,10 +57,10 @@ func (mr *MessageReader) HandlePeerMessage() (map[string]interface{}, error) {
 	return decoded, nil
 }
 
-func (mr *MessageReader) HandleGetSharedFileList() { 
+func (mr *PeerMessageReader) HandleGetSharedFileList() { 
 
 }
 
-func (mr *MessageReader) HandleFileSearchResponse() {
+func (mr *PeerMessageReader) HandleFileSearchResponse() {
 
 }

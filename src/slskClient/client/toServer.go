@@ -1,9 +1,10 @@
-package slskClient
+package client
 
 import (
-	"spotseek/src/messages"
 	"errors"
 	"fmt"
+	"log"
+	"spotseek/src/messages"
 )
 
 var CONN_TOKEN uint32 = 2
@@ -22,7 +23,7 @@ func (server *Server) SendMessage(message []byte) error {
 		fmt.Println(err)
 		return err
 	}
-	fmt.Println("Sent message to server")
+    log.Println("sent message to Soulseek server....", string(message))
 	return nil
 }
 
@@ -54,7 +55,7 @@ func (c *SlskClient) ConnectToPeer(username string, connType string) {
 	c.PendingTokenConnTypes[CONN_TOKEN] = PendingTokenConn{username: username, connType: connType}
 	c.PendingUsernameConnTypes[username] = connType
 	CONN_TOKEN += 1
-	fmt.Println("attempting indirect connection to", username, "with connection type", connType)
+	log.Println("attempting indirect connection to", username, "with connection type", connType)
 	c.Server.SendMessage(msg)
 	c.GetPeerAddress(username)
 }
