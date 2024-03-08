@@ -3,23 +3,23 @@ package peerMessages
 import (
 	// "spotseek/src/slskClient/peer"
 	"fmt"
-    "spotseek/src/slskClient/messages"
+	"log"
+	"spotseek/src/slskClient/messages"
 )
 
-
 type PeerMessageReader struct {
-    *messages.MessageReader
+	*messages.MessageReader
 }
 
-func (mr *PeerMessageReader) HandlePeerMessage() (map[string]interface{}, error) { 
+func (mr *PeerMessageReader) HandlePeerMessage() (map[string]interface{}, error) {
 	messageLength := mr.ReadInt32()
-	fmt.Println("Message length frmo peer", messageLength)
+	log.Println("Message length frmo peer", messageLength)
 	code := mr.ReadInt32()
-	if code < 1 { 
+	if code < 1 {
 		return nil, fmt.Errorf("invalid peer code. Received code %d", code)
 	}
 	var decoded map[string]interface{}
-	// switch code { 
+	// switch code {
 	// case 1:
 	// 	mb := NewMessageBuilder()
 	// 	mb.ShareFileList().SendMessageToPeer()
@@ -52,12 +52,12 @@ func (mr *PeerMessageReader) HandlePeerMessage() (map[string]interface{}, error)
 	// case 51:
 	// 	decoded = mr.HandlePlaceInQueueRequest()
 	// default:
-	// 	fmt.Println("Unsupported peer message code!", code)
+	// 	log.Println("Unsupported peer message code!", code)
 	// }
 	return decoded, nil
 }
 
-func (mr *PeerMessageReader) HandleGetSharedFileList() { 
+func (mr *PeerMessageReader) HandleGetSharedFileList() {
 
 }
 

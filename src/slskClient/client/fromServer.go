@@ -109,15 +109,15 @@ func (c *SlskClient) HandleServerMessage(mr *serverMessages.ServerMessageReader)
 func (c *SlskClient) HandleLogin(mr *serverMessages.ServerMessageReader) (map[string]interface{}, error) {
 	decoded := make(map[string]interface{})
 	success := mr.ReadBool()
-	fmt.Println("Login Success:", success)
+	log.Println("Login Success:", success)
 	if !success {
 		reason := mr.ReadString()
 		return nil, errors.New(reason)
 	}
 	greetingMessage := mr.ReadString()
 	ip := mr.ReadInt32()
-	fmt.Println("greeting message:", greetingMessage)
-	fmt.Println(ip)
+	log.Println("greeting message:", greetingMessage)
+	log.Println(ip)
 	return decoded, nil
 }
 
@@ -130,7 +130,7 @@ func (c *SlskClient) HandleGetPeerAddress(mr *serverMessages.ServerMessageReader
 	decoded["ip"] = ip
 	decoded["port"] = port
 	if ip == "0.0.0.0" {
-		fmt.Println("Can't get IP because user", username, "is offline")
+		log.Println("Can't get IP because user", username, "is offline")
 		return decoded, nil
 	}
 	uIP := IP{IP: ip, port: port}
@@ -141,19 +141,19 @@ func (c *SlskClient) HandleGetPeerAddress(mr *serverMessages.ServerMessageReader
 	// }
 	// connType, ok := c.PendingUsernameConnTypes[username]
 	// if !ok {
-	// 	fmt.Println("no pending connection for", username)
+	// 	log.Println("no pending connection for", username)
 	// 	return decoded, nil
 	// }
-	// fmt.Println("Attempting direct connection to", username, ip, port)
+	// log.Println("Attempting direct connection to", username, ip, port)
 	// peer := NewPeer(username, c.Listener, connType, 0, ip, port) // attempt direct connection
 	// if peer != nil {
 	// c.ListenForPeerMessages(peer)
 	// err := peer.PeerInit(username, connType, 0)
-	// fmt.Println(peer.UserInfoRequest())
+	// log.Println(peer.UserInfoRequest())
 	// if err != nil {
-	// 	fmt.Println(err)
+	// 	log.Println(err)
 	// } else {
-	// fmt.Println("sent PeerInit to", username)
+	// log.Println("sent PeerInit to", username)
 	// }
 	// }
 	return decoded, nil
@@ -334,8 +334,8 @@ func (c *SlskClient) HandleConnectToPeer(mr *serverMessages.ServerMessageReader)
 				c.ListenForPeerMessages(peer)
 				return decoded, nil
 			}
-			fmt.Println(err)
-			fmt.Println("Retrying sending PierceFirewall to", ip, "in 10 seconds!")
+			log.Println(err)
+			log.Println("Retrying sending PierceFirewall to", ip, "in 10 seconds!")
 			time.Sleep(10 * time.Second)
 		}
 	}

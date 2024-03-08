@@ -2,7 +2,6 @@ package serverListener
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"net"
 )
@@ -17,7 +16,7 @@ func (server *ServerListener) SendMessage(message []byte) error {
 	}
 	_, err := server.Write(message)
 	if err != nil {
-		fmt.Println(err)
+		log.Println(err)
 		return err
 	}
 	log.Println("sent message to Soulseek server....", string(message))

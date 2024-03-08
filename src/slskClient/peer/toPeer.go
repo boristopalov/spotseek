@@ -2,6 +2,7 @@ package peer
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"spotseek/src/slskClient/client/serverListener"
 	"spotseek/src/slskClient/messages"
@@ -12,10 +13,10 @@ import (
 func NewPeer(username string, listener net.Listener, connType string, token uint32, host string, port uint32) *Peer {
 	c, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host, port), 10*time.Second)
 	if err != nil {
-		fmt.Println(err)
+		log.Println(err)
 		return nil
 	} else {
-		fmt.Printf("established TCP connection to %s:%d\n", host, port)
+		log.Printf("established TCP connection to %s:%d\n", host, port)
 	}
 	return &Peer{
 		Username: username,

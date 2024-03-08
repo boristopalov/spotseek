@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"spotseek/src/config"
@@ -43,7 +42,7 @@ func main() {
 		})
 	})
 	mux.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("hey")
+		log.Println("hey")
 	})
 	mux.Get("/login", spotifyClient.LoginHandler)
 	mux.Get("/callback", spotifyClient.CallbackTokenHandler)

@@ -1,13 +1,13 @@
 package peer
 
 import (
-	"fmt"
+	"log"
     "spotseek/src/slskClient/messages/peerMessages"
 )
 
 
 func (peer *Peer) HandlePeerMessage(mr *peerMessages.PeerMessageReader) (map[string]interface{}, error) { 
-	fmt.Println("hey this is a peer msg lol")
+	log.Println("hey this is a peer msg lol")
 	return nil, nil
 }
 
