@@ -5,20 +5,22 @@ import (
 	"log"
 	"net/http"
 	"spotseek/src/config"
-	"spotseek/src/slskClient/api"
-	"spotseek/src/slskClient/client"
+	"spotseek/src/slsk/api"
+	"spotseek/src/slsk/client"
+	"spotseek/src/slsk/utils"
 	"spotseek/src/spotifyClient"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
 )
 
+type ContextKey string
+
+func (c ContextKey) String() string {
+	return string(c)
+}
+
 func main() {
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatal("Cannot load .env file")
-	}
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     config.REDIS_URI,
 		Password: config.REDIS_PASSWORD,
@@ -46,10 +48,9 @@ func main() {
 	})
 	mux.Get("/login", spotifyClient.LoginHandler)
 	mux.Get("/callback", spotifyClient.CallbackTokenHandler)
-	mux.Get("/health", api.HealthCheckHandler)
 	mux.Get("/connect/user/{username}/conn/{connType}", api.ConnectToPeer)
-	mux.Get("/slsk-client", api.GetSlskClient)
-	mux.Get("/check-port", api.CheckPort)
+	mux.Get("/slsk-client", utils.GetSlskClient)
+	mux.Get("/check-port", utils.CheckPort)
 	// mux.Get("/downloadPlaylist", spotifyClient.downloadPlaylistHandler)
 	http.ListenAndServe("localhost:3000", mux)
 

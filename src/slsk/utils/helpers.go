@@ -1,10 +1,10 @@
-package api
+package utils
 
 import (
 	"fmt"
 	"io"
 	"net/http"
-	"spotseek/src/slskClient/client"
+	"spotseek/src/slsk/client"
 	"strings"
 )
 
@@ -40,11 +40,10 @@ func CheckPort(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Error reading response body", http.StatusInternalServerError)
 		return
 	}
-	isOpen := (strings.Index(string(body), fmt.Sprintf("Port: %s/tcp open", port)) != -1)
+	isOpen := (strings.Contains(string(body), fmt.Sprintf("Port: %s/tcp open", port)))
 	if isOpen {
 		w.Write([]byte(fmt.Sprintf("Port %s is open", port)))
 	} else {
 		w.Write([]byte(fmt.Sprintf("Port %s is closed", port)))
 	}
-	return
 }

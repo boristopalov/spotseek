@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"spotseek/src/slskClient/client/serverListener"
-	"spotseek/src/slskClient/messages"
-	"spotseek/src/slskClient/messages/peerMessages"
+	"spotseek/src/slsk/client/serverListener"
+	"spotseek/src/slsk/messages"
+	"spotseek/src/slsk/messages/peerMessages"
 	"time"
 )
 

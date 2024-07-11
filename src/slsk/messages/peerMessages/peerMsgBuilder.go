@@ -1,13 +1,14 @@
 package peerMessages
 
 import (
-    "spotseek/src/slskClient/messages"
+	"spotseek/src/slsk/messages"
 )
+
 type PeerMessageBuilder struct {
-    *messages.MessageBuilder
+	*messages.MessageBuilder
 }
 
-func (mb *PeerMessageBuilder) QueueUpload(filename string) []byte { 
+func (mb *PeerMessageBuilder) QueueUpload(filename string) []byte {
 	mb.AddString(filename)
 	return mb.Build(43)
 }

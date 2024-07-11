@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"spotseek/src/slskClient/messages/serverMessages"
-	"spotseek/src/slskClient/peer"
+	"spotseek/src/slsk/messages/serverMessages"
+	"spotseek/src/slsk/peer"
 	"time"
 )
 
@@ -311,37 +311,59 @@ func (c *SlskClient) HandleConnectToPeer(mr *serverMessages.ServerMessageReader)
 	decoded["port"] = port
 	decoded["token"] = token
 	decoded["privileged"] = privileged
-	log.Println("received request from server to connect to", username, "with connection type", cType)
+
+	log.Printf("received request from server to connect to %s with connection type %s", username, cType)
+
 	_, ok := c.ConnectedPeers[username]
 	if ok && cType == c.ConnectedPeers[username].ConnType {
+		log.Printf("Already connected to %s", username)
 		return decoded, nil // we are already connected to this peer
 	}
-	_, ok = c.PendingPeerInits[username]
-	if ok && cType == c.PendingPeerInits[username].ConnType {
-		// we have a pending connection to this peer and need to establish it
-	}
+
+	// _, ok = c.PendingPeerInits[username]
+	// if ok && cType == c.PendingPeerInits[username].ConnType {
+	// 	// we have a pending connection to this peer and need to establish it
+	// }
 
 	log.Println("-----received info about peer--------\n", decoded)
 
-	peer := peer.NewPeer(username, c.Listener, cType, token, ip, port) // connection attempt
-	log.Println("----peer object we are trying to connect to-------\n", peer)
-	// try sending PierceFirewall every 10 seconds for 1 minute (6 times)
-	if peer != nil {
+	go func() {
+		peer := peer.NewPeer(username, c.Listener, cType, token, ip, port)
+		if peer == nil {
+			log.Printf("Failed to establish connection to %s", username)
+			c.CantConnectToPeer(token, username)
+			return
+		}
+
+		// try sending PierceFirewall every 10 seconds for 1 minute (6 times)
+		piercedFirewall := false
 		for i := 0; i < 6; i++ {
 			err := peer.PierceFirewall(token)
 			if err != nil {
-				c.ConnectedPeers[username] = *peer
-				c.ListenForPeerMessages(peer)
-				return decoded, nil
+				log.Printf("Failed to pierce firewall for %s: %v... Attempt %d of 6", username, err, i+1)
+				time.Sleep(10 * time.Second)
+			} else {
+				piercedFirewall = true
+				break
 			}
-			log.Println(err)
-			log.Println("Retrying sending PierceFirewall to", ip, "in 10 seconds!")
-			time.Sleep(10 * time.Second)
 		}
-	}
-	// we were unable to establish a connection
-	c.CantConnectToPeer(token, username)
-	return nil, fmt.Errorf("unable to establish connection type %s with %s; ip %s:%d", cType, username, ip, port)
+		if !piercedFirewall {
+			c.CantConnectToPeer(token, username)
+			return
+		}
+
+		err := peer.PeerInit(c.User, cType, token)
+		if err != nil {
+			log.Printf("Failed to send PeerInit to %s: %v", username, err)
+			c.CantConnectToPeer(token, username)
+			return
+		}
+
+		c.ConnectedPeers[username] = *peer
+		log.Printf("Successfully connected to peer %s", username)
+		go c.ListenForPeerMessages(peer)
+	}()
+	return decoded, nil
 }
 
 func (c *SlskClient) HandleMessageUser(mr *serverMessages.ServerMessageReader) (map[string]interface{}, error) {

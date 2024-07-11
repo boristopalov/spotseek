@@ -8,11 +8,12 @@ import (
 	"io"
 	"log"
 	"net"
-	"spotseek/src/slskClient/client/serverListener"
-	"spotseek/src/slskClient/messages"
-	"spotseek/src/slskClient/messages/peerMessages"
-	"spotseek/src/slskClient/messages/serverMessages"
-	"spotseek/src/slskClient/peer"
+	"spotseek/src/config"
+	"spotseek/src/slsk/client/serverListener"
+	"spotseek/src/slsk/messages"
+	"spotseek/src/slsk/messages/peerMessages"
+	"spotseek/src/slsk/messages/serverMessages"
+	"spotseek/src/slsk/peer"
 	"strconv"
 )
 
@@ -31,7 +32,7 @@ type SlskClient struct {
 	Port                     int
 	Server                   *serverListener.ServerListener
 	Listener                 net.Listener
-	ConnectedPeers           map[string]peer.Peer // username --> peer info
+	ConnectedPeers           map[string]peer.Peer // username --> Peer
 	User                     string               // the user that is logged in
 	UsernameIps              map[string]IP        // username -> IP address
 	PendingPeerInits         map[string]peer.Peer // username -> Peer
@@ -39,12 +40,16 @@ type SlskClient struct {
 	PendingUsernameConnTypes map[string]string
 	PendingTokenConnTypes    map[uint32]PendingTokenConn // token --> connType
 	TokenSearches            map[uint32]string
+	ConnectionToken          uint32
+	SearchToken              uint32
 }
 
 func NewSlskClient(host string, port int) *SlskClient {
 	return &SlskClient{
-		Host: host,
-		Port: port,
+		Host:            host,
+		Port:            port,
+		ConnectionToken: 0,
+		SearchToken:     0,
 	}
 }
 
@@ -53,7 +58,7 @@ func (c *SlskClient) String() string {
 	if err != nil {
 		return ""
 	}
-	return fmt.Sprintf("%s", string(json))
+	return string(json)
 }
 
 func (c *SlskClient) Json() ([]byte, error) {
@@ -77,11 +82,11 @@ func (c *SlskClient) Connect() error {
 	c.Listener = listener
 	go c.ListenForServerMessages()
 	go c.ListenForPeers() // Listen for incoming connections from other clients
-	c.Login("***REMOVED***", "***REMOVED***")
+	c.Login(config.SOULSEEK_USERNAME, config.SOULSEEK_PASSWORD)
 	c.SetWaitPort(2234)
 	log.Println("Established connection to Soulseek server")
 	log.Println("Listening on port 2234")
-	c.User = "***REMOVED***"
+	c.User = config.SOULSEEK_USERNAME
 	c.ConnectedPeers = make(map[string]peer.Peer)
 	c.UsernameIps = make(map[string]IP)
 
@@ -207,57 +212,81 @@ func (c *SlskClient) ListenForPeers() {
 	}
 }
 
-func (c *SlskClient) ListenForPeerMessages(p *peer.Peer) {
-	// This goroutine reads data from the peer
-	for {
-		readBuffer := make([]byte, 4096)
-		var currentMessage []byte
-		var messageLength uint32 = 0
+// func (c *SlskClient) ListenForPeerMessages(p *peer.Peer) {
+// 	// This goroutine reads data from the peer
+// 	for {
+// 		readBuffer := make([]byte, 4096)
+// 		var currentMessage []byte
+// 		var messageLength uint32 = 0
 
-		n, err := p.Conn.Read(readBuffer)
+// 		n, err := p.Conn.Read(readBuffer)
+// 		if err != nil {
+// 			if err == io.EOF {
+// 				log.Println("peer closed the connection:", err)
+// 				p.Conn.Close()
+// 				delete(c.ConnectedPeers, p.Username)
+// 				return
+// 			}
+// 			log.Println("error reading from peer connection:", err)
+// 			continue
+// 		}
+// 		log.Println("reading peer message")
+
+// 		currentMessage = append(currentMessage, readBuffer[:n]...)
+// 		for {
+// 			if messageLength == 0 {
+// 				// Check if we have enough data to read the message length
+// 				if len(currentMessage) < 4 {
+// 					break // Not enough data, wait for more
+// 				}
+
+// 				// Read message length
+// 				messageLength = binary.LittleEndian.Uint32(currentMessage[0:4])
+// 				currentMessage = currentMessage[4:]
+// 			}
+
+// 			// Check if we have received the full message
+// 			if uint32(len(currentMessage)) < messageLength {
+// 				break // Not enough data, wait for more
+// 			}
+
+// 			// Process the full message
+// 			mr := messages.NewMessageReader(currentMessage[:messageLength])
+// 			peerMsgReader := peerMessages.PeerMessageReader{MessageReader: mr}
+// 			msg, err := p.HandlePeerMessage(&peerMsgReader)
+// 			if err != nil {
+// 				log.Println("Error reading message from peer:", err)
+// 			} else {
+// 				log.Println("Successfully received message from peer:", msg)
+// 			}
+
+// 			// Remove the processed message from the buffer and reset the message length
+// 			currentMessage = currentMessage[messageLength:]
+// 			messageLength = 0
+// 		}
+// 	}
+// }
+
+func (c *SlskClient) ListenForPeerMessages(p *peer.Peer) {
+	for {
+		message, err := p.ReadMessage()
 		if err != nil {
 			if err == io.EOF {
-				log.Println("peer closed the connection:", err)
+				log.Printf("Peer %s closed the connection", p.Username)
 				p.Conn.Close()
 				delete(c.ConnectedPeers, p.Username)
 				return
 			}
-			log.Println("error reading from peer connection:", err)
+			log.Printf("Error reading from peer %s: %v", p.Username, err)
 			continue
 		}
-		log.Println("reading peer message")
 
-		currentMessage = append(currentMessage, readBuffer[:n]...)
-		for {
-			if messageLength == 0 {
-				// Check if we have enough data to read the message length
-				if len(currentMessage) < 4 {
-					break // Not enough data, wait for more
-				}
-
-				// Read message length
-				messageLength = binary.LittleEndian.Uint32(currentMessage[0:4])
-				currentMessage = currentMessage[4:]
-			}
-
-			// Check if we have received the full message
-			if uint32(len(currentMessage)) < messageLength {
-				break // Not enough data, wait for more
-			}
-
-			// Process the full message
-			mr := messages.NewMessageReader(currentMessage[:messageLength])
-			peerMsgReader := peerMessages.PeerMessageReader{MessageReader: mr}
-			msg, err := p.HandlePeerMessage(&peerMsgReader)
-			if err != nil {
-				log.Println("Error reading message from peer:", err)
-			} else {
-				log.Println("Successfully received message from peer:", msg)
-			}
-
-			// Remove the processed message from the buffer and reset the message length
-			currentMessage = currentMessage[messageLength:]
-			messageLength = 0
+		mr := peerMessages.PeerMessageReader{MessageReader: messages.NewMessageReader(message)}
+		msg, err := mr.HandlePeerMessage()
+		if err != nil {
+			log.Println("Error reading message from Soulseek:", err)
+		} else {
+			log.Println("Message from server:", msg)
 		}
 	}
 }

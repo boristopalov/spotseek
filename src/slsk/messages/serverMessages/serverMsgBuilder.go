@@ -3,29 +3,29 @@ package serverMessages
 import (
 	"crypto/md5"
 	"encoding/hex"
-	"spotseek/src/slskClient/messages"
+	"spotseek/src/slsk/messages"
 )
 
 // Soulseek protocol required variables
 const VERSION = 182
 const MINOR = 157
 
-// token to increment for each search 
+// token to increment for each search
 var SEARCH_TOKEN int32 = 2
 
 type ServerMessageBuilder struct {
-    *messages.MessageBuilder
+	*messages.MessageBuilder
 }
 
 func (mb *ServerMessageBuilder) Login(username string, password string) []byte {
 	// Example usage to construct a login message
 	// Add message contents
-	mb.AddString(username)     // Username
-	mb.AddString(password)     // Password
-	mb.AddInt32(VERSION)             // Version
-	hash := md5.Sum([]byte(username+password))
-	mb.AddString(hex.EncodeToString(hash[:]))   // Hash value
-	mb.AddInt32(MINOR)              // Minor version
+	mb.AddString(username) // Username
+	mb.AddString(password) // Password
+	mb.AddInt32(VERSION)   // Version
+	hash := md5.Sum([]byte(username + password))
+	mb.AddString(hex.EncodeToString(hash[:])) // Hash value
+	mb.AddInt32(MINOR)                        // Minor version
 
 	// Build the message
 
@@ -34,25 +34,24 @@ func (mb *ServerMessageBuilder) Login(username string, password string) []byte {
 
 }
 func (mb *ServerMessageBuilder) SetWaitPort(port uint32) []byte {
-	mb.AddInt32(port)     // The port
-	return mb.Build(2)    // The message code for building should be the same as the one used above
+	mb.AddInt32(port)  // The port
+	return mb.Build(2) // The message code for building should be the same as the one used above
 }
 
 func (mb *ServerMessageBuilder) GetPeerAddress(username string) []byte {
-	mb.AddString(username)    // The username
-	return mb.Build(3)        // The message code for building should be the same as the one used above
+	mb.AddString(username) // The username
+	return mb.Build(3)     // The message code for building should be the same as the one used above
 }
 
 func (mb *ServerMessageBuilder) AddUser(username string) []byte {
-	mb.AddString(username)    // The username
-	return mb.Build(5)        // The message code for building should be the same as the one used above
+	mb.AddString(username) // The username
+	return mb.Build(5)     // The message code for building should be the same as the one used above
 }
 
 func (mb *ServerMessageBuilder) GetUserStatus(username string) []byte {
-	mb.AddString(username)    // The username
-	return mb.Build(7)        // The message code for building should be the same as the one used above
+	mb.AddString(username) // The username
+	return mb.Build(7)     // The message code for building should be the same as the one used above
 }
-
 
 func (mb *ServerMessageBuilder) SayChatroom(room, message string) []byte {
 	mb.AddString(room)
@@ -102,7 +101,6 @@ func (mb *ServerMessageBuilder) SharedFoldersFiles(folderCount, fileCount uint32
 	return mb.Build(35)
 }
 
-
 func (mb *ServerMessageBuilder) PrivilegedUsers() []byte {
 	return mb.Build(69)
 }
@@ -111,7 +109,6 @@ func (mb *ServerMessageBuilder) HaveNoParent(haveParent int8) []byte {
 	mb.AddInt8(haveParent)
 	return mb.Build(71)
 }
-
 
 func (mb *ServerMessageBuilder) CheckPrivileges() []byte {
 	return mb.Build(92)
@@ -128,7 +125,6 @@ func (mb *ServerMessageBuilder) RoomSearch(room string, token uint32, query stri
 	mb.AddString(query)
 	return mb.Build(120)
 }
-
 
 func (mb *ServerMessageBuilder) SendUploadSpeed(speed uint32) []byte {
 	mb.AddInt32(speed)
@@ -175,8 +171,7 @@ func (mb *ServerMessageBuilder) CantConnectToPeer(token uint32, username string)
 	return mb.Build(1001)
 }
 
-
-func (mb *ServerMessageBuilder) UserSearch(username string, token uint32, query string) []byte { 
+func (mb *ServerMessageBuilder) UserSearch(username string, token uint32, query string) []byte {
 	mb.AddString(username)
 	mb.AddInt32(token)
 	mb.AddString(query)
