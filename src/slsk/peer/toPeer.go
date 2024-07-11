@@ -10,27 +10,26 @@ import (
 	"time"
 )
 
-func NewPeer(username string, listener net.Listener, connType string, token uint32, host string, port uint32) *Peer {
+func NewPeer(username string, listener net.Listener, connType string, token uint32, host string, port uint32) (*Peer, error) {
 	c, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host, port), 10*time.Second)
 	if err != nil {
-		log.Println(err)
-		return nil
+		return nil, fmt.Errorf("unable to establish connection to peer %s: %v", username, err)
 	} else {
 		log.Printf("established TCP connection to %s:%d\n", host, port)
-	}
-	return &Peer{
-		Username: username,
-		Conn:     &serverListener.ServerListener{Conn: c},
-		Listener: listener,
-		ConnType: connType,
-		Token:    token,
-		Host:     host,
-		Port:     port,
+		return &Peer{
+			Username: username,
+			Conn:     &serverListener.ServerListener{Conn: c},
+			Listener: listener,
+			ConnType: connType,
+			Token:    token,
+			Host:     host,
+			Port:     port,
+		}, nil
 	}
 }
 
 func (peer *Peer) PeerInit(username string, connType string, token uint32) error {
-	mb := peerMessages.PeerInitMessageBuilder{
+	mb := peerMessages.PeerMessageBuilder{
 		MessageBuilder: messages.NewMessageBuilder(),
 	}
 	msg := mb.PeerInit(username, connType, token)
@@ -39,7 +38,7 @@ func (peer *Peer) PeerInit(username string, connType string, token uint32) error
 }
 
 func (peer *Peer) PierceFirewall(token uint32) error {
-	mb := peerMessages.PeerInitMessageBuilder{
+	mb := peerMessages.PeerMessageBuilder{
 		MessageBuilder: messages.NewMessageBuilder(),
 	}
 	msg := mb.PierceFirewall(token)

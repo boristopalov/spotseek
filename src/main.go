@@ -27,6 +27,9 @@ func main() {
 		DB:       config.REDIS_DB,
 	})
 
+	// show line number in logs
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
 	spotifyClient := spotifyClient.NewSpotifyClient(rdb)
 	slskClient := client.NewSlskClient("server.slsknet.org", 2242)
 	slskClient.Connect()

@@ -1,6 +1,7 @@
 package serverListener
 
 import (
+	"encoding/binary"
 	"errors"
 	"log"
 	"net"
@@ -19,7 +20,8 @@ func (server *ServerListener) SendMessage(message []byte) error {
 		log.Println(err)
 		return err
 	}
-	log.Println("sent message to Soulseek server....", string(message))
+
+	log.Printf("Sent message to Soulseek server with code %d: %s", binary.LittleEndian.Uint32(message[4:8]), string(message[8:]))
 	return nil
 }
 

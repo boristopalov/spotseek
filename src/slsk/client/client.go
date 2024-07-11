@@ -36,7 +36,6 @@ type SlskClient struct {
 	User                     string               // the user that is logged in
 	UsernameIps              map[string]IP        // username -> IP address
 	PendingPeerInits         map[string]peer.Peer // username -> Peer
-	PendingUsernameIps       map[string]bool      // if we request a user's IP we add it here
 	PendingUsernameConnTypes map[string]string
 	PendingTokenConnTypes    map[uint32]PendingTokenConn // token --> connType
 	TokenSearches            map[uint32]string
@@ -81,7 +80,7 @@ func (c *SlskClient) Connect() error {
 	c.Server = &serverListener.ServerListener{Conn: conn}
 	c.Listener = listener
 	go c.ListenForServerMessages()
-	go c.ListenForPeers() // Listen for incoming connections from other clients
+	go c.ListenForIncomingPeers() // Listen for incoming connections from other clients
 	c.Login(config.SOULSEEK_USERNAME, config.SOULSEEK_PASSWORD)
 	c.SetWaitPort(2234)
 	log.Println("Established connection to Soulseek server")
@@ -90,8 +89,7 @@ func (c *SlskClient) Connect() error {
 	c.ConnectedPeers = make(map[string]peer.Peer)
 	c.UsernameIps = make(map[string]IP)
 
-	c.PendingUsernameIps = make(map[string]bool)
-	c.PendingTokenConnTypes = make(map[uint32]PendingTokenConn)
+	c.PendingTokenConnTypes = make(map[uint32]PendingTokenConn) // idk if we need this
 	c.PendingUsernameConnTypes = make(map[string]string)
 
 	c.TokenSearches = make(map[uint32]string)
@@ -116,156 +114,160 @@ func (c *SlskClient) Close() error {
 	return nil
 }
 
-// only listens for new peers. this does not listen for messages coming from connected peers.
-func (c *SlskClient) ListenForPeers() {
+func (c *SlskClient) ReadMessage() ([]byte, error) {
+	sizeBuf := make([]byte, 4)
+	_, err := io.ReadFull(c.Server.Conn, sizeBuf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read message size: %w", err)
+	}
+	size := binary.LittleEndian.Uint32(sizeBuf)
+
+	message := make([]byte, size)
+	_, err = io.ReadFull(c.Server.Conn, message)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read message body: %w", err)
+	}
+
+	return message, nil
+}
+
+// ListenForIncomingPeers listens for new peer connections
+func (c *SlskClient) ListenForIncomingPeers() {
 	for {
 		peerConn, err := c.Listener.Accept()
 		if err != nil {
-			log.Println("Error establishing connection with peer:", err)
+			log.Printf("Error accepting peer connection: %v", err)
 			continue
 		}
 
-		// at this point we should be able to send and receive messages (we being our client and the peerConn client)
-		log.Println("REMOTE ADDRESS OF PEER:", peerConn.RemoteAddr().String())
-		buffer := make([]byte, 4096)
-		n, readErr := peerConn.Read(buffer) // read the incoming message from peer
-		if readErr != nil {
-			log.Println("Cannot read into the buffer:", readErr)
-			continue
-		}
-
-		size := binary.LittleEndian.Uint32(buffer[0:4])
-		if size > 4096 { // buffer allocation is 4096 bytes so we cant read more than that
-			log.Println("size of incoming peer message is g.t.e 4096 bytes")
-			log.Println("msg: ", buffer)
-			continue
-		}
-		peerMsgReader := peerMessages.PeerInitMessageReader{MessageReader: messages.NewMessageReader(buffer[:n])}
-		code := peerMsgReader.ReadInt8()
-		// this fires sometimes...? have received code 23 in the past, which is not a valid code. something is likely wrong in my code
-		log.Println("RECEIVED CODE", code, "FROM PEER")
-		// i dont think these are the right codes to check for here?
-		// also this should be in a select statement
-		// accept connection --> start a new goroutine with select statement of codes
-		// send
-		if code == 0 {
-			token := peerMsgReader.ParsePierceFirewall()
-			usernameAndConnType, ok := c.PendingTokenConnTypes[token]
-			if !ok {
-				log.Println("trying to connect to peer but cannot find a pending connection for token with value", token)
-				continue
-			}
-
-			ip, port, err := net.SplitHostPort(peerConn.RemoteAddr().String())
-			if err != nil {
-				log.Println("error getting ip and port from", peerConn.RemoteAddr().String())
-				continue
-			}
-
-			// establish a connection with peer...
-			// first parse the ip and port from the incoming IP
-			portUint64, _ := strconv.ParseUint(port, 10, 64)
-			portUint32 := uint32(portUint64)
-			username := usernameAndConnType.username
-
-			// then attempt to establish a connection over TCP with the peer
-			peer := peer.NewPeer(username, c.Listener, usernameAndConnType.connType, token, ip, portUint32)
-
-			// add the new peer to our map of peers
-			c.ConnectedPeers[username] = *peer
-
-			// connection to peer is no longer pending
-			delete(c.PendingTokenConnTypes, token)
-
-			// Send it to the other user to confirm
-			peer.PierceFirewall(token)
-			c.ListenForPeerMessages(peer)
-
-		} else if code == 1 {
-			username, connType, token := peerMsgReader.ParsePeerInit()
-
-			ip, port, err := net.SplitHostPort(peerConn.RemoteAddr().String())
-			if err != nil {
-				log.Println("error getting ip and port from", peerConn.RemoteAddr().String())
-				continue
-			}
-
-			// establish a connection with peer
-			// first parse the ip and port from the incoming IP
-			portUint64, _ := strconv.ParseUint(port, 10, 64)
-			portUint32 := uint32(portUint64)
-
-			// then attempt to establish a connection over TCP with the peer
-			peer := peer.NewPeer(username, c.Listener, connType, token, ip, portUint32)
-			if peer == nil {
-				log.Println("error establishing PeerInit connection to", username)
-				continue
-			}
-
-			// add the new peer to our map of peers
-			c.ConnectedPeers[username] = *peer
-
-			// connection to peer is no longer pending
-			delete(c.PendingTokenConnTypes, token)
-			c.ListenForPeerMessages(peer)
-		}
+		go c.handlePeerConnection(peerConn)
 	}
 }
 
-// func (c *SlskClient) ListenForPeerMessages(p *peer.Peer) {
-// 	// This goroutine reads data from the peer
-// 	for {
-// 		readBuffer := make([]byte, 4096)
-// 		var currentMessage []byte
-// 		var messageLength uint32 = 0
+func (c *SlskClient) handlePeerConnection(peerConn net.Conn) (map[string]interface{}, error) {
+	// defer peerConn.Close()
+	message, err := c.readPeerInitMessage(peerConn)
+	if err != nil {
+		return nil, fmt.Errorf("error reading peer message: %v", err)
+	}
 
-// 		n, err := p.Conn.Read(readBuffer)
-// 		if err != nil {
-// 			if err == io.EOF {
-// 				log.Println("peer closed the connection:", err)
-// 				p.Conn.Close()
-// 				delete(c.ConnectedPeers, p.Username)
-// 				return
-// 			}
-// 			log.Println("error reading from peer connection:", err)
-// 			continue
-// 		}
-// 		log.Println("reading peer message")
+	peerMsgReader := peerMessages.PeerInitMessageReader{MessageReader: messages.NewMessageReader(message)}
+	code := peerMsgReader.ReadInt8()
 
-// 		currentMessage = append(currentMessage, readBuffer[:n]...)
-// 		for {
-// 			if messageLength == 0 {
-// 				// Check if we have enough data to read the message length
-// 				if len(currentMessage) < 4 {
-// 					break // Not enough data, wait for more
-// 				}
+	log.Printf("Peer message: code %d; address %s", code, peerConn.RemoteAddr().String())
 
-// 				// Read message length
-// 				messageLength = binary.LittleEndian.Uint32(currentMessage[0:4])
-// 				currentMessage = currentMessage[4:]
-// 			}
+	var decoded map[string]interface{}
+	switch code {
+	case 0:
+		decoded, err = c.handlePierceFirewall(peerConn, &peerMsgReader)
+	case 1:
+		decoded, err = c.handlePeerInit(peerConn, &peerMsgReader)
+	default:
+		return nil, fmt.Errorf("unknown peer message code: %d", code)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return decoded, nil
+}
 
-// 			// Check if we have received the full message
-// 			if uint32(len(currentMessage)) < messageLength {
-// 				break // Not enough data, wait for more
-// 			}
+func (c *SlskClient) readPeerInitMessage(conn net.Conn) ([]byte, error) {
+	sizeBuf := make([]byte, 4)
+	_, err := io.ReadFull(conn, sizeBuf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read message size: %w", err)
+	}
+	size := binary.LittleEndian.Uint32(sizeBuf)
 
-// 			// Process the full message
-// 			mr := messages.NewMessageReader(currentMessage[:messageLength])
-// 			peerMsgReader := peerMessages.PeerMessageReader{MessageReader: mr}
-// 			msg, err := p.HandlePeerMessage(&peerMsgReader)
-// 			if err != nil {
-// 				log.Println("Error reading message from peer:", err)
-// 			} else {
-// 				log.Println("Successfully received message from peer:", msg)
-// 			}
+	if size > 4096 {
+		return nil, fmt.Errorf("message size too large: %d bytes", size)
+	}
 
-// 			// Remove the processed message from the buffer and reset the message length
-// 			currentMessage = currentMessage[messageLength:]
-// 			messageLength = 0
-// 		}
-// 	}
-// }
+	message := make([]byte, size)
+	_, err = io.ReadFull(conn, message)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read message body: %w", err)
+	}
+
+	return message, nil
+}
+
+func (c *SlskClient) handlePierceFirewall(conn net.Conn, reader *peerMessages.PeerInitMessageReader) (map[string]interface{}, error) {
+	token := reader.ParsePierceFirewall()
+	usernameAndConnType, ok := c.PendingTokenConnTypes[token]
+	if !ok {
+		log.Printf("No pending connection for token %d", token)
+		return map[string]interface{}{
+			"token": token,
+		}, nil
+	}
+
+	peer, err := c.createPeerFromConnection(conn, usernameAndConnType.username, usernameAndConnType.connType, token)
+	if err != nil {
+		log.Printf("Error establishing connection to peer while handling PierceFirewall: %v", err)
+		return nil, fmt.Errorf("HandlePierceFirewall Error: %v", err)
+	}
+
+	c.ConnectedPeers[peer.Username] = *peer
+	delete(c.PendingTokenConnTypes, token)
+
+	// err = peer.PierceFirewall(token)
+	// if err != nil {
+	// 	log.Printf("Error sending PierceFirewall: %v", err)
+	// 	return nil, fmt.Errorf("HandlePierceFirewall Error: %v", err)
+	// }
+
+	go c.ListenForPeerMessages(peer)
+	return map[string]interface{}{
+		"token": token,
+	}, nil
+}
+
+// Step 3 (User B)
+// If User B receives the PeerInit message, a connection is established, and user A is free to send peer messages.
+func (c *SlskClient) handlePeerInit(conn net.Conn, reader *peerMessages.PeerInitMessageReader) (map[string]interface{}, error) {
+	username, connType, token := reader.ParsePeerInit()
+
+	peer, err := c.createPeerFromConnection(conn, username, connType, token)
+	if err != nil {
+		log.Printf("Error establishing connection to peer while handling PeerInit: %v", err)
+		return nil, err
+	}
+	_, ok := c.ConnectedPeers[username]
+	if ok && connType == c.ConnectedPeers[username].ConnType {
+		log.Printf("Already connected to %s", username)
+		return nil, err
+	}
+
+	log.Printf("Connection established with peer %v", peer)
+	c.ConnectedPeers[username] = *peer
+	delete(c.PendingTokenConnTypes, token)
+
+	go c.ListenForPeerMessages(peer)
+	return map[string]interface{}{
+		"username": username,
+		"connType": connType,
+		"token":    token,
+	}, nil
+}
+
+func (c *SlskClient) createPeerFromConnection(conn net.Conn, username, connType string, token uint32) (*peer.Peer, error) {
+	ip, portStr, err := net.SplitHostPort(conn.RemoteAddr().String())
+	if err != nil {
+		return nil, fmt.Errorf("error getting IP and port: %w", err)
+	}
+
+	port, err := strconv.ParseUint(portStr, 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing port: %w", err)
+	}
+
+	peer, err := peer.NewPeer(username, c.Listener, connType, token, ip, uint32(port))
+	if err != nil {
+		return nil, err
+	}
+	return peer, nil
+}
 
 func (c *SlskClient) ListenForPeerMessages(p *peer.Peer) {
 	for {
@@ -292,52 +294,51 @@ func (c *SlskClient) ListenForPeerMessages(p *peer.Peer) {
 }
 
 func (c *SlskClient) ListenForServerMessages() {
-	go func() {
-		readBuffer := make([]byte, 4096)
-		var currentMessage []byte
-		var messageLength uint32 = 0
+	readBuffer := make([]byte, 4096)
+	var currentMessage []byte
+	var messageLength uint32
 
-		for {
-			n, err := c.Server.Read(readBuffer)
-			if err != nil {
-				log.Println("Error reading from connection:", err)
-				return
-			}
-
-			// Add new data to current message
-			currentMessage = append(currentMessage, readBuffer[:n]...)
-
-			for {
-				if messageLength == 0 {
-					// Check if we have enough data to read the message length
-					if len(currentMessage) < 4 {
-						break // Not enough data, wait for more
-					}
-
-					// Read message length
-					messageLength = binary.LittleEndian.Uint32(currentMessage[0:4])
-					currentMessage = currentMessage[4:]
-				}
-
-				// Check if we have received the full message
-				if uint32(len(currentMessage)) < messageLength {
-					break // Not enough data, wait for more
-				}
-
-				// Process the full message
-				mr := messages.NewMessageReader(currentMessage[:messageLength])
-				serverMsgReader := serverMessages.ServerMessageReader{MessageReader: mr}
-				msg, err := c.HandleServerMessage(&serverMsgReader)
-				if err != nil {
-					log.Println("Error reading message from Soulseek:", err)
-				} else {
-					log.Println("Message from server:", msg)
-				}
-
-				// Remove the processed message from the buffer and reset the message length
-				currentMessage = currentMessage[messageLength:]
-				messageLength = 0
-			}
+	for {
+		n, err := c.Server.Read(readBuffer)
+		if err != nil {
+			log.Printf("Error reading from server connection: %v", err)
+			return
 		}
-	}()
+
+		currentMessage = append(currentMessage, readBuffer[:n]...)
+		currentMessage = c.processMessages(currentMessage, &messageLength)
+	}
+}
+
+func (c *SlskClient) processMessages(data []byte, messageLength *uint32) []byte {
+	for {
+		if *messageLength == 0 {
+			if len(data) < 4 {
+				return data // Not enough data to read message length
+			}
+			*messageLength = binary.LittleEndian.Uint32(data[:4])
+			data = data[4:]
+		}
+
+		if uint32(len(data)) < *messageLength {
+			return data // Not enough data for full message
+		}
+
+		c.handleServerMessage(data[:*messageLength])
+
+		data = data[*messageLength:]
+		*messageLength = 0
+	}
+}
+
+func (c *SlskClient) handleServerMessage(messageData []byte) {
+	mr := messages.NewMessageReader(messageData)
+	serverMsgReader := serverMessages.ServerMessageReader{MessageReader: mr}
+
+	msg, err := c.HandleServerMessage(&serverMsgReader)
+	if err != nil {
+		log.Printf("Error decoding server message: %v", err)
+	} else {
+		log.Printf("Server message: message: %v", msg)
+	}
 }
