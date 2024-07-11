@@ -1,32 +1,30 @@
-package spotifyClient
+package spotify
 
 import (
-	"spotseek/src/config"
 	"encoding/base64"
 	"encoding/json"
 	"log"
 	"math/rand"
 	"net/http"
 	"net/url"
+	"spotseek/src/config"
 	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
-
 type SpotifyClient struct {
 	rdb *redis.Client
 }
 
 type TokenHttpResponse struct {
-    AccessToken  string `json:"access_token"`
-    TokenType    string `json:"token_type"`
-    Scope        string `json:"scope"`
-    ExpiresIn    int    `json:"expires_in"`
-    RefreshToken string `json:"refresh_token"`
+	AccessToken  string `json:"access_token"`
+	TokenType    string `json:"token_type"`
+	Scope        string `json:"scope"`
+	ExpiresIn    int    `json:"expires_in"`
+	RefreshToken string `json:"refresh_token"`
 }
-
 
 type UserPlaylist struct {
 	ID   string `json:"id"`
@@ -79,9 +77,9 @@ func (s *SpotifyClient) CallbackTokenHandler(w http.ResponseWriter, r *http.Requ
 		http.Redirect(w, r, "/#?error=state_mismatch", http.StatusTemporaryRedirect)
 	}
 	data := url.Values{
-		"code":          {code},
-		"redirect_uri":  {config.REDIRECT_URI},
-		"grant_type":    {"authorization_code"},
+		"code":         {code},
+		"redirect_uri": {config.REDIRECT_URI},
+		"grant_type":   {"authorization_code"},
 	}
 
 	req, err := http.NewRequest("POST", "https://accounts.spotify.com/api/token", strings.NewReader(data.Encode()))
@@ -106,4 +104,3 @@ func (s *SpotifyClient) CallbackTokenHandler(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(jsonToSend)
 }
-

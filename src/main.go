@@ -8,7 +8,7 @@ import (
 	"spotseek/src/slsk/api"
 	"spotseek/src/slsk/client"
 	"spotseek/src/slsk/utils"
-	"spotseek/src/spotifyClient"
+	"spotseek/src/spotify"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
@@ -30,7 +30,7 @@ func main() {
 	// show line number in logs
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	spotifyClient := spotifyClient.NewSpotifyClient(rdb)
+	spotifyClient := spotify.NewSpotifyClient(rdb)
 	slskClient := client.NewSlskClient("server.slsknet.org", 2242)
 	slskClient.Connect()
 	log.Println(slskClient)
