@@ -21,7 +21,8 @@ func (server *ServerListener) SendMessage(message []byte) error {
 		return err
 	}
 
-	log.Printf("Sent message to Soulseek server with code %d: %s", binary.LittleEndian.Uint32(message[4:8]), string(message[8:]))
+	log.Println("------------------- Sent message to Soulseek server ----------------")
+	log.Printf("Code %d; Message: %s", binary.LittleEndian.Uint32(message[4:8]), string(message[8:]))
 	return nil
 }
 

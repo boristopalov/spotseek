@@ -32,13 +32,15 @@ func main() {
 
 	spotifyClient := spotify.NewSpotifyClient(rdb)
 	slskClient := client.NewSlskClient("server.slsknet.org", 2242)
-	slskClient.Connect()
+	err := slskClient.Connect()
+	if err != nil {
+		log.Fatalf("Failed to connect to soulseek: %v", err)
+	}
 	log.Println(slskClient)
 
 	mux := chi.NewRouter()
 
 	// middleware to pass in slskCLient into the context
-	// TODO: some other mapping to support multiple soulseek clients?
 	mux.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
@@ -52,8 +54,15 @@ func main() {
 	mux.Get("/login", spotifyClient.LoginHandler)
 	mux.Get("/callback", spotifyClient.CallbackTokenHandler)
 	mux.Get("/connect/user/{username}/conn/{connType}", api.ConnectToPeer)
+	mux.Get("/search", api.Search)
+	mux.Get("/download", api.Download)
+
+	// print out info about the slsk client
 	mux.Get("/slsk-client", utils.GetSlskClient)
+
+	// check if port is open to receive messages from soulseek
 	mux.Get("/check-port", utils.CheckPort)
+
 	// mux.Get("/downloadPlaylist", spotifyClient.downloadPlaylistHandler)
 	http.ListenAndServe("localhost:3000", mux)
 

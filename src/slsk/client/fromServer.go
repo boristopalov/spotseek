@@ -614,6 +614,7 @@ func (c *SlskClient) HandleCantConnectToPeer(mr *serverMessages.ServerMessageRea
 	decoded := make(map[string]interface{})
 	decoded["type"] = "cantConnectToPeer"
 	decoded["token"] = mr.ReadInt32()
+	decoded["username"] = mr.ReadString()
 	return decoded, nil
 }
 
