@@ -202,43 +202,49 @@ func (c *SlskClient) HandleSayChatroom(mr *serverMessages.ServerMessageReader) (
 func (c *SlskClient) HandleJoinRoom(mr *serverMessages.ServerMessageReader) (map[string]interface{}, error) {
 	decoded := make(map[string]interface{})
 	decoded["type"] = "joinRoom"
-	decoded["room"] = mr.ReadString()
+	room := mr.ReadString()
+	decoded["room"] = room
 	var users []map[string]interface{}
 	numUsers := mr.ReadInt32()
+	usernames := make([]string, numUsers)
 	for i := uint32(0); i < numUsers; i++ {
 		user := make(map[string]interface{})
 		username := mr.ReadString()
 		user["username"] = username
 		users = append(users, user)
+		usernames[i] = username
 	}
+	c.JoinedRooms[room] = usernames
 
-	_ = mr.ReadInt32()
+	// _ = mr.ReadInt32() // number of statuses
 
-	for i := uint32(0); i < numUsers; i++ {
-		status := mr.ReadInt32()
-		users[i]["status"] = status
-	}
+	// for i := uint32(0); i < numUsers; i++ {
+	// 	status := mr.ReadInt32()
+	// 	users[i]["status"] = status
+	// }
 
-	_ = mr.ReadInt32()
+	// _ = mr.ReadInt32() // number of user stats
 
-	for i := uint32(0); i < numUsers; i++ {
-		users[i]["speed"] = mr.ReadInt32()
-		users[i]["downloadNum"] = mr.ReadInt64()
-		users[i]["files"] = mr.ReadInt32()
-		users[i]["folders"] = mr.ReadInt32()
-	}
+	// for i := uint32(0); i < numUsers; i++ {
+	// 	users[i]["avgspeed"] = mr.ReadInt32()
+	// 	users[i]["uploadnum"] = mr.ReadInt32()
+	// 	users[i]["unknown"] = mr.ReadInt32()
+	// 	users[i]["files"] = mr.ReadInt32()
+	// 	users[i]["folders"] = mr.ReadInt32()
+	// }
 
-	_ = mr.ReadInt32()
+	// _ = mr.ReadInt32() // number of slotsfree
 
-	for i := uint32(0); i < numUsers; i++ {
-		users[i]["slotsFree"] = mr.ReadInt32()
-	}
+	// for i := uint32(0); i < numUsers; i++ {
+	// 	users[i]["slotsFree"] = mr.ReadInt32()
+	// }
 
-	_ = mr.ReadInt32()
+	// _ = mr.ReadInt32() // number of user countries
 
-	for i := uint32(0); i < numUsers; i++ {
-		users[i]["country"] = mr.ReadString()
-	}
+	// for i := uint32(0); i < numUsers; i++ {
+	// 	users[i]["country"] = mr.ReadString()
+	// }
+
 	return decoded, nil
 }
 

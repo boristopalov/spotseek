@@ -22,7 +22,7 @@ func (listener *Listener) SendMessage(message []byte) error {
 	}
 
 	log.Printf("------------------- Sent message to %s ----------------", listener.RemoteAddr().String())
-	log.Printf("Code %d; Message: %s", binary.LittleEndian.Uint32(message[4:8]), string(message[8:]))
+	log.Printf("Sent code %d; Message: %s", binary.LittleEndian.Uint32(message[4:8]), string(message[8:]))
 	log.Println("------------------- End of message ----------------")
 	return nil
 }

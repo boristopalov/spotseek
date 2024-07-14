@@ -36,6 +36,7 @@ type SlskClient struct {
 	Listener                 net.Listener
 	ConnectedPeers           map[string]peer.Peer // username --> Peer
 	mu                       sync.RWMutex
+	fileMutex                sync.RWMutex
 	User                     string               // the user that is logged in
 	UsernameIps              map[string]IP        // username -> IP address
 	PendingPeerInits         map[string]peer.Peer // username -> Peer
@@ -48,6 +49,7 @@ type SlskClient struct {
 	DownloadQueue            map[string]*Transfer
 	UploadQueue              map[string]*Transfer
 	TransferListeners        []TransferListener
+	JoinedRooms              map[string][]string // room name --> users in room
 }
 
 type Transfer struct {
@@ -75,6 +77,8 @@ func NewSlskClient(host string, port int) *SlskClient {
 		PendingUsernameConnTypes: make(map[string]string),
 		UsernameIps:              make(map[string]IP),
 		ConnectedPeers:           make(map[string]peer.Peer),
+		PendingPeerInits:         make(map[string]peer.Peer),
+		JoinedRooms:              make(map[string][]string),
 	}
 }
 
@@ -300,32 +304,98 @@ func (c *SlskClient) createPeerFromConnection(conn net.Conn, username, connType 
 	return peer, nil
 }
 
+// func (c *SlskClient) ListenForPeerMessages(p *peer.Peer) {
+// 	for {
+// 		message, err := p.ReadMessage()
+// 		if err != nil {
+// 			if err == io.EOF {
+// 				log.Printf("Peer %s closed the connection", p.Username)
+// 				p.Conn.Close()
+// 				c.mu.Lock()
+// 				delete(c.ConnectedPeers, p.Username)
+// 				c.mu.Unlock()
+// 				return
+// 			}
+// 			log.Printf("Error reading from peer %s: %v", p.Username, err)
+// 			continue
+// 		}
+
+// 		mr := peerMessages.PeerMessageReader{MessageReader: messages.NewMessageReader(message)}
+// 		msg, err := mr.HandlePeerMessage()
+// 		if err != nil {
+// 			log.Println("Error reading message from peer:", err)
+// 		} else {
+// 			log.Println("Message from peer:", msg)
+// 			if msg["type"] == "FileSearchResponse" {
+// 				c.SearchResults[msg["token"].(uint32)] = msg["results"].([]shared.SearchResult)
+// 			}
+// 		}
+// 	}
+// }
+
 func (c *SlskClient) ListenForPeerMessages(p *peer.Peer) {
+	readBuffer := make([]byte, 4096)
+	var currentMessage []byte
+	var messageLength uint32
+
+	defer func() {
+		log.Printf("Stopped listening for messages from peer %s", p.Username)
+		p.Conn.Close()
+		c.mu.Lock()
+		delete(c.ConnectedPeers, p.Username)
+		c.mu.Unlock()
+	}()
+
 	for {
-		message, err := p.ReadMessage()
+		n, err := p.Conn.Read(readBuffer)
 		if err != nil {
 			if err == io.EOF {
 				log.Printf("Peer %s closed the connection", p.Username)
-				p.Conn.Close()
-				c.mu.Lock()
-				delete(c.ConnectedPeers, p.Username)
-				c.mu.Unlock()
 				return
 			}
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				log.Printf("Timeout reading from peer %s, retrying...", p.Username)
+				continue
+			}
 			log.Printf("Error reading from peer %s: %v", p.Username, err)
-			continue
+			return
 		}
 
+		currentMessage = append(currentMessage, readBuffer[:n]...)
+		currentMessage = c.processPeerMessages(p, currentMessage, &messageLength)
+	}
+}
+
+func (c *SlskClient) processPeerMessages(p *peer.Peer, data []byte, messageLength *uint32) []byte {
+	for {
+		if *messageLength == 0 {
+			if len(data) < 4 {
+				return data // Not enough data to read message length
+			}
+			*messageLength = binary.LittleEndian.Uint32(data[:4])
+			data = data[4:]
+		}
+
+		if uint32(len(data)) < *messageLength {
+			return data // Not enough data for full message
+		}
+
+		message := data[:*messageLength]
 		mr := peerMessages.PeerMessageReader{MessageReader: messages.NewMessageReader(message)}
 		msg, err := mr.HandlePeerMessage()
 		if err != nil {
-			log.Println("Error reading message from peer:", err)
+			log.Printf("Error reading message from peer %s: %v", p.Username, err)
 		} else {
-			log.Println("Message from peer:", msg)
+			log.Printf("Message from peer %s: %v", p.Username, msg)
 			if msg["type"] == "FileSearchResponse" {
+				c.fileMutex.Lock()
 				c.SearchResults[msg["token"].(uint32)] = msg["results"].([]shared.SearchResult)
+				c.fileMutex.Unlock()
 			}
 		}
+
+		data = data[*messageLength:]
+		*messageLength = 0
 	}
 }
 

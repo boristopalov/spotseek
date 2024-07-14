@@ -16,8 +16,8 @@ type PeerMessageReader struct {
 }
 
 func (mr *PeerMessageReader) HandlePeerMessage() (map[string]interface{}, error) {
-	messageLength := mr.ReadInt32()
-	log.Println("Message length frmo peer", messageLength)
+	// messageLength := mr.ReadInt32()
+	// log.Println("Message length frmo peer", messageLength)
 	code := mr.ReadInt32()
 	if code < 1 {
 		return nil, fmt.Errorf("invalid peer code. Received code %d", code)

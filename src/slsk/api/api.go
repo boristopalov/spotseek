@@ -73,3 +73,19 @@ func Search(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Search initiated"})
 }
+
+func JoinRoom(w http.ResponseWriter, r *http.Request) {
+	room := r.URL.Query().Get("room")
+	if room == "" {
+		http.Error(w, "Missing room parameter", http.StatusBadRequest)
+		return
+	}
+	c, ok := r.Context().Value("slskClient").(*client.SlskClient)
+	if !ok {
+		http.Error(w, "Cannot retrieve slskClient from context", http.StatusInternalServerError)
+		return
+	}
+	c.JoinRoom(room)
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Joined room"})
+}

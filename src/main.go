@@ -56,6 +56,7 @@ func main() {
 	mux.Get("/connect/user/{username}/conn/{connType}", api.ConnectToPeer)
 	mux.Get("/search", api.Search)
 	mux.Get("/download", api.Download)
+	mux.Get("/join", api.JoinRoom)
 
 	// print out info about the slsk client
 	mux.Get("/slsk-client", utils.GetSlskClient)

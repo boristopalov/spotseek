@@ -26,14 +26,14 @@ func (p *Peer) ReadMessage() ([]byte, error) {
 	sizeBuf := make([]byte, 4)
 	_, err := io.ReadFull(p.Conn, sizeBuf)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error reading message size: %v", err)
 	}
 	size := binary.LittleEndian.Uint32(sizeBuf)
 
 	message := make([]byte, size)
 	_, err = io.ReadFull(p.Conn, message)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error reading message: %v", err)
 	}
 
 	return message, nil

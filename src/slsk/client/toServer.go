@@ -89,3 +89,9 @@ func (c *SlskClient) UserSearch(username string, query string) {
 	msg := mb.UserSearch(username, c.NextSearchToken(), query)
 	c.Server.SendMessage(msg)
 }
+
+func (c *SlskClient) JoinRoom(room string) {
+	mb := serverMessages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
+	msg := mb.JoinRoom(room)
+	c.Server.SendMessage(msg)
+}

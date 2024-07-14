@@ -61,6 +61,7 @@ func (mb *ServerMessageBuilder) SayChatroom(room, message string) []byte {
 
 func (mb *ServerMessageBuilder) JoinRoom(room string) []byte {
 	mb.AddString(room)
+	mb.AddInt32(0)
 	return mb.Build(14)
 }
 
