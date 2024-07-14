@@ -260,8 +260,10 @@ func (c *SlskClient) handlePeerInit(conn net.Conn, reader *peerMessages.PeerInit
 		log.Printf("Error establishing connection to peer while handling PeerInit: %v", err)
 		return nil, err
 	}
-	_, ok := c.ConnectedPeers[username]
-	if ok && connType == c.ConnectedPeers[username].ConnType {
+	c.mu.RLock()
+	connectedPeer, ok := c.ConnectedPeers[username]
+	c.mu.RUnlock()
+	if ok && connType == connectedPeer.ConnType {
 		log.Printf("Already connected to %s", username)
 		return nil, err
 	}
@@ -394,7 +396,9 @@ func (c *SlskClient) QueueDownload(username, filename string, size int64) error 
 		Status:   "Queued",
 	}
 
+	c.mu.RLock()
 	peer, ok := c.ConnectedPeers[username]
+	c.mu.RUnlock()
 	if !ok {
 		return errors.New("not connected to peer")
 	}
