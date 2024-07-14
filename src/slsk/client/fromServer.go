@@ -17,7 +17,7 @@ func (c *SlskClient) HandleServerMessage(mr *serverMessages.ServerMessageReader)
 	var decoded map[string]interface{}
 	var err error
 	code := mr.ReadInt32()
-	log.Println("--------------- decoding server message ----------------")
+	log.Println("--------------- Decoding server message ----------------")
 	log.Printf("Server message: code %d", code)
 	switch code {
 	case 1:
@@ -147,16 +147,19 @@ func (c *SlskClient) HandleGetPeerAddress(mr *serverMessages.ServerMessageReader
 	if peer != nil {
 		err := peer.PeerInit(c.User, connType, 0)
 		if err == nil {
+			c.mu.Lock()
 			c.ConnectedPeers[username] = *peer
-			go c.ListenForPeerMessages(peer)
-			log.Printf("HandleGetPeerAddress: Direct connection established with %s", username)
 			delete(c.PendingUsernameConnTypes, username)
+			c.mu.Unlock()
+
+			log.Printf("HandleGetPeerAddress: Direct connection established with %s", username)
+			go c.ListenForPeerMessages(peer)
 			return decoded, nil
 		}
-		log.Printf("HandleGetPeerAddress: Direct connection to %s failed: %v", username, err)
+		log.Printf("HandleGetPeerAddress: Direct connection to %s failed (PeerInit): %v", username, err)
 	}
 
-	log.Printf("HandleGetPeerAddress: Direct connection to %s failed: %v", username, err)
+	log.Printf("HandleGetPeerAddress: Direct connection to %s failed (TCP): %v", username, err)
 	return decoded, nil
 }
 
@@ -313,51 +316,62 @@ func (c *SlskClient) HandleConnectToPeer(mr *serverMessages.ServerMessageReader)
 	decoded["port"] = port
 	decoded["token"] = token
 	decoded["privileged"] = privileged
-
 	log.Printf("HandleConnectToPeer: Attempting connection to %s; type %s", username, cType)
 
-	_, ok := c.ConnectedPeers[username]
-	if ok && cType == c.ConnectedPeers[username].ConnType {
-		log.Printf("HandleConnectToPeer: Already connected to %s", username)
-		return decoded, nil // we are already connected to this peer
-	}
+	switch cType {
+	case "F":
+		log.Printf("HandleConnectToPeer: File Transfer to/from %s", username)
+		// peer := c.ConnectedPeers[username]
 
-	// log.Printf("HandleConnectToPeer: Peer info: %v", decoded)
-
-	go func() {
-
-		peer, err := peer.NewPeer(username, c.Listener, cType, token, ip, port)
-		if err != nil {
-			log.Printf("HandleConnectToPeer: Failed to establish connection to %s: %v", username, err)
-			c.CantConnectToPeer(token, username)
-			return
+	case "D":
+		log.Printf("HandleConnectToPeer: Distributed Peer connection to %s", username)
+	default: // "P"
+		_, ok := c.ConnectedPeers[username]
+		if ok && cType == c.ConnectedPeers[username].ConnType {
+			log.Printf("HandleConnectToPeer: Already connected to %s", username)
+			return decoded, nil // we are already connected to this peer
 		}
 
-		// err = peer.PeerInit(c.User, cType, token)
-		// if err != nil {
-		// 	log.Printf("Error sending PeerInit message to peer %v: %v", peer, err)
-		// 	c.CantConnectToPeer(token, username)
-		// 	return
-		// }
-		// log.Printf("Successfully sent PeerInit message to peer %v", peer)
+		// log.Printf("HandleConnectToPeer: Peer info: %v", decoded)
 
-		// Step 4: Send PierceFirewall to the peer
-		// try sending PierceFirewall every 10 seconds for 1 minute (6 times)
-		for i := 0; i < 6; i++ {
-			err := peer.PierceFirewall(token)
-			if err == nil {
-				c.ConnectedPeers[username] = *peer
-				log.Printf("HandleConnectToPeer: Successfully connected to peer %s", username)
-				delete(c.PendingUsernameConnTypes, username)
-				go c.ListenForPeerMessages(peer)
+		go func() {
+
+			peer, err := peer.NewPeer(username, c.Listener, cType, token, ip, port)
+			if err != nil {
+				log.Printf("HandleConnectToPeer: Failed to establish connection to %s (TCP): %v", username, err)
+				c.CantConnectToPeer(token, username)
 				return
 			}
-			log.Printf("HandleConnectToPeer: Failed to pierce firewall for %s: %v... Attempt %d of 6", username, err, i+1)
-			time.Sleep(10 * time.Second)
-		}
-		// Step 5 (optional): send CantConnectToPeer if PierceFirewall fails
-		c.CantConnectToPeer(token, username)
-	}()
+
+			// err = peer.PeerInit(c.User, cType, token)
+			// if err != nil {
+			// 	log.Printf("Error sending PeerInit message to peer %v: %v", peer, err)
+			// 	c.CantConnectToPeer(token, username)
+			// 	return
+			// }
+			// log.Printf("Successfully sent PeerInit message to peer %v", peer)
+
+			// Step 4: Send PierceFirewall to the peer
+			// try sending PierceFirewall every 10 seconds for 1 minute (6 times)
+			for i := 0; i < 6; i++ {
+				err := peer.PierceFirewall(token)
+				if err == nil {
+					c.mu.Lock()
+					c.ConnectedPeers[username] = *peer
+					delete(c.PendingUsernameConnTypes, username)
+					c.mu.Unlock()
+
+					log.Printf("HandleConnectToPeer: Successfully connected to peer %s", username)
+					go c.ListenForPeerMessages(peer)
+					return
+				}
+				log.Printf("HandleConnectToPeer: Failed to pierce firewall for %s: %v... Attempt %d of 6", username, err, i+1)
+				time.Sleep(10 * time.Second)
+			}
+			// Step 5 (optional): send CantConnectToPeer if PierceFirewall fails
+			c.CantConnectToPeer(token, username)
+		}()
+	}
 
 	return decoded, nil
 }

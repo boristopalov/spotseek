@@ -16,6 +16,7 @@ import (
 	"spotseek/src/slsk/peer"
 	"spotseek/src/slsk/shared"
 	"strconv"
+	"sync"
 )
 
 type IP struct {
@@ -34,6 +35,7 @@ type SlskClient struct {
 	Server                   *listen.Listener
 	Listener                 net.Listener
 	ConnectedPeers           map[string]peer.Peer // username --> Peer
+	mu                       sync.RWMutex
 	User                     string               // the user that is logged in
 	UsernameIps              map[string]IP        // username -> IP address
 	PendingPeerInits         map[string]peer.Peer // username -> Peer
@@ -60,10 +62,19 @@ type TransferListener func(transfer *Transfer)
 
 func NewSlskClient(host string, port int) *SlskClient {
 	return &SlskClient{
-		Host:            host,
-		Port:            port,
-		ConnectionToken: 0,
-		SearchToken:     0,
+		Host:                     host,
+		Port:                     port,
+		ConnectionToken:          0,
+		SearchToken:              0,
+		DownloadQueue:            make(map[string]*Transfer),
+		UploadQueue:              make(map[string]*Transfer),
+		TransferListeners:        make([]TransferListener, 0),
+		SearchResults:            make(map[uint32][]shared.SearchResult),
+		TokenSearches:            make(map[uint32]string),
+		PendingTokenConnTypes:    make(map[uint32]PendingTokenConn),
+		PendingUsernameConnTypes: make(map[string]string),
+		UsernameIps:              make(map[string]IP),
+		ConnectedPeers:           make(map[string]peer.Peer),
 	}
 }
 
@@ -95,19 +106,12 @@ func (c *SlskClient) Connect() error {
 	c.Server = &listen.Listener{Conn: conn}
 	c.Listener = listener
 	go c.ListenForServerMessages()
-	go c.ListenForIncomingPeers() // Listen for incoming connections from other clients
+	go c.ListenForIncomingPeers()
 	c.Login(config.SOULSEEK_USERNAME, config.SOULSEEK_PASSWORD)
 	c.SetWaitPort(2234)
 	log.Println("Established connection to Soulseek server")
 	log.Println("Listening on port 2234")
 	c.User = config.SOULSEEK_USERNAME
-	c.ConnectedPeers = make(map[string]peer.Peer)
-	c.UsernameIps = make(map[string]IP)
-
-	c.PendingTokenConnTypes = make(map[uint32]PendingTokenConn) // idk if we need this
-	c.PendingUsernameConnTypes = make(map[string]string)
-
-	c.TokenSearches = make(map[uint32]string)
 
 	//time.AfterFunc(5*time.Second, func () { c.ConnectToPeer("forthelulz", "P") })
 	//time.AfterFunc(10*time.Second, func () { c.UserSearch("amsterdamn", "hamada")})
@@ -218,9 +222,9 @@ func (c *SlskClient) handlePierceFirewall(conn net.Conn, reader *peerMessages.Pe
 	}
 
 	log.Printf("received PierceFirewall from %s", usernameAndConnType.username)
-	return map[string]interface{}{
-		"token": token,
-	}, nil
+	// return map[string]interface{}{
+	// 	"token": token,
+	// }, nil
 
 	// I don't think we need to do anything here?
 	peer, err := c.createPeerFromConnection(conn, usernameAndConnType.username, usernameAndConnType.connType, token)
@@ -229,8 +233,10 @@ func (c *SlskClient) handlePierceFirewall(conn net.Conn, reader *peerMessages.Pe
 		return nil, fmt.Errorf("HandlePierceFirewall Error: %v", err)
 	}
 
+	c.mu.Lock()
 	c.ConnectedPeers[peer.Username] = *peer
 	delete(c.PendingTokenConnTypes, token)
+	c.mu.Unlock()
 
 	// err = peer.PierceFirewall(token)
 	// if err != nil {
@@ -261,8 +267,10 @@ func (c *SlskClient) handlePeerInit(conn net.Conn, reader *peerMessages.PeerInit
 	}
 
 	log.Printf("Connection established with peer %v", peer)
+	c.mu.Lock()
 	c.ConnectedPeers[username] = *peer
 	delete(c.PendingTokenConnTypes, token)
+	c.mu.Unlock()
 
 	go c.ListenForPeerMessages(peer)
 	return map[string]interface{}{
@@ -297,7 +305,9 @@ func (c *SlskClient) ListenForPeerMessages(p *peer.Peer) {
 			if err == io.EOF {
 				log.Printf("Peer %s closed the connection", p.Username)
 				p.Conn.Close()
+				c.mu.Lock()
 				delete(c.ConnectedPeers, p.Username)
+				c.mu.Unlock()
 				return
 			}
 			log.Printf("Error reading from peer %s: %v", p.Username, err)
@@ -366,6 +376,7 @@ func (c *SlskClient) handleServerMessage(messageData []byte) {
 	} else {
 		log.Printf("Server message: message: %v", msg)
 	}
+	log.Println("--------------- End of message ----------------")
 }
 
 // FILE TRANSFER HANDLING
@@ -419,3 +430,66 @@ func (c *SlskClient) UpdateTransferProgress(username, filename string, progress 
 func (c *SlskClient) AddTransferListener(listener TransferListener) {
 	c.TransferListeners = append(c.TransferListeners, listener)
 }
+
+// func (c *SlskClient) DownloadPeerFile(token uint32, peer *peer.Peer) error {
+// 	log.Printf("Downloading file from peer %s", peer.Username)
+
+// 	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", peer.Host, peer.Port))
+// 	if err != nil {
+// 		return fmt.Errorf("failed to connect to peer: %v", err)
+// 	}
+// 	defer conn.Close()
+
+// 	c.DownloadQueue
+// 	c.UpdateTransferProgress(peer.Username, filename, 0, false)
+
+// 	received := false
+// 	requestToken := token
+// 	buf := make([]byte, 0, size)
+// 	reader := bufio.NewReader(conn)
+
+// 	for {
+// 		if !noPierce && !received {
+// 			tokenBytes := make([]byte, 4)
+// 			_, err := io.ReadFull(reader, tokenBytes)
+// 			if err != nil {
+// 				return fmt.Errorf("failed to read token: %v", err)
+// 			}
+// 			requestToken = uint32(tokenBytes[0]) | uint32(tokenBytes[1])<<8 | uint32(tokenBytes[2])<<16 | uint32(tokenBytes[3])<<24
+// 			conn.Write([]byte{0, 0, 0, 0, 0, 0, 0, 0})
+// 			received = true
+// 		} else {
+// 			chunk := make([]byte, 4096)
+// 			n, err := reader.Read(chunk)
+// 			if err == io.EOF {
+// 				break
+// 			}
+// 			if err != nil {
+// 				return fmt.Errorf("error reading file data: %v", err)
+// 			}
+// 			buf = append(buf, chunk[:n]...)
+
+// 			if int64(len(buf)) >= size {
+// 				break
+// 			}
+// 		}
+// 	}
+
+// 	filePath := getFilePathName(p.Username, filename)
+// 	err = os.MkdirAll(filepath.Dir(filePath), 0755)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to create directory: %v", err)
+// 	}
+
+// 	err = os.WriteFile(filePath, buf, 0644)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to write file: %v", err)
+// 	}
+
+// 	log.Printf("File downloaded successfully: %s", filePath)
+// 	return nil
+// }
+
+// func getFilePathName(user, file string) string {
+// 	return filepath.Join(os.TempDir(), "slsk", fmt.Sprintf("%s_%s", user, filepath.Base(file)))
+// }
