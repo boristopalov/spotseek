@@ -9,7 +9,7 @@ import (
 )
 
 func ConnectToPeer(w http.ResponseWriter, r *http.Request) {
-	c, ok := r.Context().Value("slskClient").(client.SlskClient)
+	c, ok := r.Context().Value("slskClient").(*client.SlskClient)
 	if !ok {
 		http.Error(w, "Cannot retrieve slskClient from context", http.StatusInternalServerError)
 		return
@@ -34,7 +34,7 @@ func Download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c, ok := r.Context().Value("slskClient").(client.SlskClient)
+	c, ok := r.Context().Value("slskClient").(*client.SlskClient)
 	if !ok {
 		http.Error(w, "Cannot retrieve slskClient from context", http.StatusInternalServerError)
 		return
@@ -63,7 +63,7 @@ func Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c, ok := r.Context().Value("slskClient").(client.SlskClient)
+	c, ok := r.Context().Value("slskClient").(*client.SlskClient)
 	if !ok {
 		http.Error(w, "Cannot retrieve slskClient from context", http.StatusInternalServerError)
 		return

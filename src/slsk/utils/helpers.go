@@ -9,7 +9,7 @@ import (
 )
 
 func GetSlskClient(w http.ResponseWriter, r *http.Request) {
-	c, ok := r.Context().Value("slskClient").(client.SlskClient)
+	c, ok := r.Context().Value("slskClient").(*client.SlskClient)
 	if !ok {
 		http.Error(w, "Cannot retrieve slskClient from context", http.StatusInternalServerError)
 		return

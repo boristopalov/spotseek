@@ -13,14 +13,13 @@ import (
 )
 
 type Peer struct {
-	Username         string
-	Listener         net.Listener
-	Conn             *listen.Listener
-	FileTransferConn *listen.Listener
-	ConnType         string
-	Token            uint32
-	Host             string
-	Port             uint32
+	Username string
+	Listener net.Listener
+	Conn     *listen.Listener
+	ConnType string
+	Token    uint32
+	Host     string
+	Port     uint32
 }
 
 func (p *Peer) ReadMessage() ([]byte, error) {

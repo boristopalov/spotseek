@@ -74,6 +74,7 @@ func (mr *PeerMessageReader) HandleGetSharedFileList() {
 
 }
 
+// peers will send us this after we call FileSearch with their matches
 func (mr *PeerMessageReader) HandleFileSearchResponse() (map[string]interface{}, error) {
 	r, err := zlib.NewReader(bytes.NewReader(mr.Message))
 	if err != nil {

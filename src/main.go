@@ -44,7 +44,7 @@ func main() {
 	mux.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
-			ctx = context.WithValue(ctx, "slskClient", *slskClient)
+			ctx = context.WithValue(ctx, "slskClient", slskClient)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	})

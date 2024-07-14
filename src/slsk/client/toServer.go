@@ -8,15 +8,14 @@ import (
 )
 
 func (c *SlskClient) NextConnectionToken() uint32 {
-	t := c.ConnectionToken
-	c.ConnectionToken++
-	return t
+	c.ConnectionToken = c.ConnectionToken + 1
+	return c.ConnectionToken
 }
 
 func (c *SlskClient) NextSearchToken() uint32 {
-	t := c.SearchToken
-	c.SearchToken++
-	return t
+	c.SearchToken = c.SearchToken + 1
+	log.Println("NextSearchToken:", c.SearchToken)
+	return c.SearchToken
 }
 
 func (c *SlskClient) Login(username string, password string) {
@@ -40,6 +39,7 @@ func (c *SlskClient) GetPeerAddress(username string) {
 func (c *SlskClient) FileSearch(query string) {
 	mb := serverMessages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	t := c.NextSearchToken()
+	log.Printf("Got token: %d", t)
 	c.TokenSearches[t] = query
 	c.SearchResults[t] = make([]shared.SearchResult, 0)
 	msg := mb.FileSearch(t, query)
