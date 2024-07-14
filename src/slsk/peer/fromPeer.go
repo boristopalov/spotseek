@@ -16,3 +16,9 @@ func (peer *Peer) HandlePeerMessage(mr *peerMessages.PeerMessageReader) (map[str
 // func (c *SlskClient) HandleSharedFileListResponse(mr *messages.MessageReader) (error) {
 
 // }
+
+// func (peer *Peer) HandleFileSearchResponse(mr *peerMessages.PeerMessageReader) (uint32, []shared.SearchResult) {
+
+// 	// c.SearchResults[token] = append(c.SearchResults[token], results...)
+// 	// return nil
+// }

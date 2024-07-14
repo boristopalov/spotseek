@@ -9,11 +9,12 @@ import (
 	"log"
 	"net"
 	"spotseek/src/config"
-	"spotseek/src/slsk/client/serverListener"
+	"spotseek/src/slsk/client/listen"
 	"spotseek/src/slsk/messages"
 	"spotseek/src/slsk/messages/peerMessages"
 	"spotseek/src/slsk/messages/serverMessages"
 	"spotseek/src/slsk/peer"
+	"spotseek/src/slsk/shared"
 	"strconv"
 )
 
@@ -30,7 +31,7 @@ type PendingTokenConn struct {
 type SlskClient struct {
 	Host                     string
 	Port                     int
-	Server                   *serverListener.ServerListener
+	Server                   *listen.Listener
 	Listener                 net.Listener
 	ConnectedPeers           map[string]peer.Peer // username --> Peer
 	User                     string               // the user that is logged in
@@ -41,7 +42,21 @@ type SlskClient struct {
 	TokenSearches            map[uint32]string
 	ConnectionToken          uint32
 	SearchToken              uint32
+	SearchResults            map[uint32][]shared.SearchResult // token --> search results
+	DownloadQueue            map[string]*Transfer
+	UploadQueue              map[string]*Transfer
+	TransferListeners        []TransferListener
 }
+
+type Transfer struct {
+	Username string
+	Filename string
+	Size     int64
+	Progress int64
+	Status   string
+}
+
+type TransferListener func(transfer *Transfer)
 
 func NewSlskClient(host string, port int) *SlskClient {
 	return &SlskClient{
@@ -77,7 +92,7 @@ func (c *SlskClient) Connect() error {
 	if err != nil {
 		return errors.New("unable to dial tcp connection; " + err.Error())
 	}
-	c.Server = &serverListener.ServerListener{Conn: conn}
+	c.Server = &listen.Listener{Conn: conn}
 	c.Listener = listener
 	go c.ListenForServerMessages()
 	go c.ListenForIncomingPeers() // Listen for incoming connections from other clients
@@ -202,6 +217,12 @@ func (c *SlskClient) handlePierceFirewall(conn net.Conn, reader *peerMessages.Pe
 		}, nil
 	}
 
+	log.Printf("received PierceFirewall from %s", usernameAndConnType.username)
+	return map[string]interface{}{
+		"token": token,
+	}, nil
+
+	// I don't think we need to do anything here?
 	peer, err := c.createPeerFromConnection(conn, usernameAndConnType.username, usernameAndConnType.connType, token)
 	if err != nil {
 		log.Printf("Error establishing connection to peer while handling PierceFirewall: %v", err)
@@ -286,13 +307,17 @@ func (c *SlskClient) ListenForPeerMessages(p *peer.Peer) {
 		mr := peerMessages.PeerMessageReader{MessageReader: messages.NewMessageReader(message)}
 		msg, err := mr.HandlePeerMessage()
 		if err != nil {
-			log.Println("Error reading message from Soulseek:", err)
+			log.Println("Error reading message from peer:", err)
 		} else {
-			log.Println("Message from server:", msg)
+			log.Println("Message from peer:", msg)
+			if msg["type"] == "FileSearchResponse" {
+				c.SearchResults[msg["token"].(uint32)] = msg["results"].([]shared.SearchResult)
+			}
 		}
 	}
 }
 
+// SERVER MESSAGE HANDLING
 func (c *SlskClient) ListenForServerMessages() {
 	readBuffer := make([]byte, 4096)
 	var currentMessage []byte
@@ -306,11 +331,11 @@ func (c *SlskClient) ListenForServerMessages() {
 		}
 
 		currentMessage = append(currentMessage, readBuffer[:n]...)
-		currentMessage = c.processMessages(currentMessage, &messageLength)
+		currentMessage = c.processServerMessages(currentMessage, &messageLength)
 	}
 }
 
-func (c *SlskClient) processMessages(data []byte, messageLength *uint32) []byte {
+func (c *SlskClient) processServerMessages(data []byte, messageLength *uint32) []byte {
 	for {
 		if *messageLength == 0 {
 			if len(data) < 4 {
@@ -341,4 +366,56 @@ func (c *SlskClient) handleServerMessage(messageData []byte) {
 	} else {
 		log.Printf("Server message: message: %v", msg)
 	}
+}
+
+// FILE TRANSFER HANDLING
+func (c *SlskClient) QueueDownload(username, filename string, size int64) error {
+	key := username + "|" + filename
+	if _, exists := c.DownloadQueue[key]; exists {
+		return errors.New("download already queued")
+	}
+
+	c.DownloadQueue[key] = &Transfer{
+		Username: username,
+		Filename: filename,
+		Size:     size,
+		Progress: 0,
+		Status:   "Queued",
+	}
+
+	peer, ok := c.ConnectedPeers[username]
+	if !ok {
+		return errors.New("not connected to peer")
+	}
+
+	return peer.QueueUpload(filename)
+}
+
+func (c *SlskClient) UpdateTransferProgress(username, filename string, progress int64, isUpload bool) {
+	key := username + "|" + filename
+	var transfer *Transfer
+
+	if isUpload {
+		if upload, ok := c.UploadQueue[key]; ok {
+			upload.Progress = progress
+			upload.Status = "Transferring"
+			transfer = upload
+		}
+	} else {
+		if download, ok := c.DownloadQueue[key]; ok {
+			download.Progress = progress
+			download.Status = "Transferring"
+			transfer = download
+		}
+	}
+
+	if transfer != nil {
+		for _, listener := range c.TransferListeners {
+			listener(transfer)
+		}
+	}
+}
+
+func (c *SlskClient) AddTransferListener(listener TransferListener) {
+	c.TransferListeners = append(c.TransferListeners, listener)
 }

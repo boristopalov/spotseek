@@ -376,6 +376,7 @@ func (c *SlskClient) HandleFileSearch(mr *serverMessages.ServerMessageReader) (m
 	decoded := make(map[string]interface{})
 	decoded["type"] = "fileSearch"
 	decoded["username"] = mr.ReadString()
+	decoded["token"] = mr.ReadInt32()
 	decoded["query"] = mr.ReadString()
 	return decoded, nil
 }

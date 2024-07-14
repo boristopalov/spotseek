@@ -4,6 +4,7 @@ import (
 	"log"
 	"spotseek/src/slsk/messages"
 	"spotseek/src/slsk/messages/serverMessages"
+	"spotseek/src/slsk/shared"
 )
 
 func (c *SlskClient) NextConnectionToken() uint32 {
@@ -40,6 +41,7 @@ func (c *SlskClient) FileSearch(query string) {
 	mb := serverMessages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	t := c.NextSearchToken()
 	c.TokenSearches[t] = query
+	c.SearchResults[t] = make([]shared.SearchResult, 0)
 	msg := mb.FileSearch(t, query)
 	c.Server.SendMessage(msg)
 }
@@ -51,10 +53,10 @@ func (c *SlskClient) ConnectToPeer(username string, connType string) {
 		log.Printf("Already connected to %s", username)
 		return
 	}
-	// indirect connection request via sending ConnectToPeer message to Soulseek
+	// Step 1: indirect connection request via sending ConnectToPeer message to Soulseek
 	c.RequestPeerConnection(username, connType, c.NextConnectionToken())
 
-	// Initialize direct connection request
+	// Step 1.5: Initialize direct connection request
 	// First we need to get the peer's address
 	// see fromServer.HandleGetPeerAddress for rest of implementation
 	// we establish a connection to a peer when we receive info about their IP address

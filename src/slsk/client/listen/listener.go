@@ -1,4 +1,4 @@
-package serverListener
+package listen
 
 import (
 	"encoding/binary"
@@ -7,15 +7,15 @@ import (
 	"net"
 )
 
-type ServerListener struct {
+type Listener struct {
 	net.Conn
 }
 
-func (server *ServerListener) SendMessage(message []byte) error {
-	if server == nil {
+func (listener *Listener) SendMessage(message []byte) error {
+	if listener == nil {
 		return errors.New("connection is not established")
 	}
-	_, err := server.Write(message)
+	_, err := listener.Write(message)
 	if err != nil {
 		log.Println(err)
 		return err
@@ -26,6 +26,6 @@ func (server *ServerListener) SendMessage(message []byte) error {
 	return nil
 }
 
-func NewServer() *ServerListener {
-	return &ServerListener{}
+func NewServer() *Listener {
+	return &Listener{}
 }
