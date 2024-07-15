@@ -6,7 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
-	"spotseek/src/slsk/listen"
+	listen "spotseek/src/slsk/network"
 	"time"
 )
 

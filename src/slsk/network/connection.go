@@ -1,4 +1,4 @@
-package listen
+package network
 
 import (
 	"encoding/binary"

@@ -2,7 +2,7 @@ package client
 
 import (
 	"net"
-	"spotseek/src/slsk/listen"
+	"spotseek/src/slsk/network"
 	"spotseek/src/slsk/peer"
 	"spotseek/src/slsk/shared"
 	"sync"
@@ -21,7 +21,7 @@ type PendingTokenConn struct {
 type SlskClient struct {
 	Host                     string
 	Port                     int
-	ServerConnection         *listen.Connection
+	ServerConnection         *network.Connection
 	Listener                 net.Listener
 	ConnectedPeers           map[string]peer.Peer // username --> Peer
 	mu                       sync.RWMutex

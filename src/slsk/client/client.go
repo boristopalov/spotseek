@@ -6,7 +6,7 @@ import (
 	"log"
 	"net"
 	"spotseek/src/config"
-	"spotseek/src/slsk/listen"
+	"spotseek/src/slsk/network"
 	"spotseek/src/slsk/peer"
 	"spotseek/src/slsk/shared"
 )
@@ -40,7 +40,7 @@ func (c *SlskClient) Connect() error {
 	if err != nil {
 		return errors.New("unable to dial tcp connection; " + err.Error())
 	}
-	c.ServerConnection = &listen.Connection{Conn: conn}
+	c.ServerConnection = &network.Connection{Conn: conn}
 	c.Listener = listener
 	go c.ListenForServerMessages()
 	go c.ListenForIncomingPeers()
