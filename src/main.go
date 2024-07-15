@@ -7,7 +7,6 @@ import (
 	"spotseek/src/config"
 	"spotseek/src/slsk/api"
 	"spotseek/src/slsk/client"
-	"spotseek/src/slsk/utils"
 	"spotseek/src/spotify"
 
 	"github.com/go-chi/chi/v5"
@@ -59,10 +58,10 @@ func main() {
 	mux.Get("/join", api.JoinRoom)
 
 	// print out info about the slsk client
-	mux.Get("/slsk-client", utils.GetSlskClient)
+	mux.Get("/slsk-client", api.GetSlskClient)
 
 	// check if port is open to receive messages from soulseek
-	mux.Get("/check-port", utils.CheckPort)
+	mux.Get("/check-port", api.CheckPort)
 
 	// mux.Get("/downloadPlaylist", spotifyClient.downloadPlaylistHandler)
 	http.ListenAndServe("localhost:3000", mux)

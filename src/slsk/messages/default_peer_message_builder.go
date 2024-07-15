@@ -1,10 +1,9 @@
-package peerMessages
+package messages
 
 import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
-	"spotseek/src/slsk/messages"
 )
 
 type FileInfo struct {
@@ -20,7 +19,7 @@ type FileAttribute struct {
 }
 
 type PeerMessageBuilder struct {
-	*messages.MessageBuilder
+	*MessageBuilder
 }
 
 func (mb *PeerMessageBuilder) QueueUpload(filename string) []byte {

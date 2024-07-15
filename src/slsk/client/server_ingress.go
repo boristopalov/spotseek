@@ -3,7 +3,6 @@ package client
 import (
 	"log"
 	"spotseek/src/slsk/messages"
-	"spotseek/src/slsk/messages/serverMessages"
 	"spotseek/src/slsk/shared"
 )
 
@@ -19,31 +18,31 @@ func (c *SlskClient) NextSearchToken() uint32 {
 }
 
 func (c *SlskClient) Login(username string, password string) {
-	mb := serverMessages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
+	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	msg := mb.Login(username, password)
-	c.Server.SendMessage(msg)
+	c.ServerConnection.SendMessage(msg)
 }
 
 func (c *SlskClient) SetWaitPort(port uint32) {
-	mb := serverMessages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
+	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	msg := mb.SetWaitPort(port)
-	c.Server.SendMessage(msg)
+	c.ServerConnection.SendMessage(msg)
 }
 
 func (c *SlskClient) GetPeerAddress(username string) {
-	mb := serverMessages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
+	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	msg := mb.GetPeerAddress(username)
-	c.Server.SendMessage(msg)
+	c.ServerConnection.SendMessage(msg)
 }
 
 func (c *SlskClient) FileSearch(query string) {
-	mb := serverMessages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
+	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	t := c.NextSearchToken()
 	log.Printf("Got token: %d", t)
 	c.TokenSearches[t] = query
 	c.SearchResults[t] = make([]shared.SearchResult, 0)
 	msg := mb.FileSearch(t, query)
-	c.Server.SendMessage(msg)
+	c.ServerConnection.SendMessage(msg)
 }
 
 func (c *SlskClient) ConnectToPeer(username string, connType string) {
@@ -65,33 +64,33 @@ func (c *SlskClient) ConnectToPeer(username string, connType string) {
 }
 
 func (c *SlskClient) RequestPeerConnection(username, connType string, token uint32) {
-	mb := serverMessages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
+	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	msg := mb.ConnectToPeer(token, username, connType)
 	c.PendingTokenConnTypes[token] = PendingTokenConn{username: username, connType: connType}
 	log.Println("attempting indirect connection to", username, "with connection type", connType)
-	c.Server.SendMessage(msg)
+	c.ServerConnection.SendMessage(msg)
 }
 
 func (c *SlskClient) CantConnectToPeer(token uint32, username string) {
-	mb := serverMessages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
+	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	msg := mb.CantConnectToPeer(token, username)
-	c.Server.SendMessage(msg)
+	c.ServerConnection.SendMessage(msg)
 }
 
 func (c *SlskClient) GetUserStatus(username string) {
-	mb := serverMessages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
+	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	msg := mb.GetUserStatus(username)
-	c.Server.SendMessage(msg)
+	c.ServerConnection.SendMessage(msg)
 }
 
 func (c *SlskClient) UserSearch(username string, query string) {
-	mb := serverMessages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
+	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	msg := mb.UserSearch(username, c.NextSearchToken(), query)
-	c.Server.SendMessage(msg)
+	c.ServerConnection.SendMessage(msg)
 }
 
 func (c *SlskClient) JoinRoom(room string) {
-	mb := serverMessages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
+	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	msg := mb.JoinRoom(room)
-	c.Server.SendMessage(msg)
+	c.ServerConnection.SendMessage(msg)
 }

@@ -1,9 +1,7 @@
-package peerMessages
-
-import "spotseek/src/slsk/messages"
+package messages
 
 type PeerInitMessageReader struct {
-	*messages.MessageReader
+	*MessageReader
 }
 
 // func (mr *PeerInitMessageReader) HandlePeerInitMessage() ([]byte, error)

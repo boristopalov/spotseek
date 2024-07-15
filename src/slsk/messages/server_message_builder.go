@@ -1,9 +1,8 @@
-package serverMessages
+package messages
 
 import (
 	"crypto/md5"
 	"encoding/hex"
-	"spotseek/src/slsk/messages"
 )
 
 // Soulseek protocol required variables
@@ -14,7 +13,7 @@ const MINOR = 157
 var SEARCH_TOKEN int32 = 2
 
 type ServerMessageBuilder struct {
-	*messages.MessageBuilder
+	*MessageBuilder
 }
 
 func (mb *ServerMessageBuilder) Login(username string, password string) []byte {

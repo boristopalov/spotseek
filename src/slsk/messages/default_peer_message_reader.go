@@ -1,4 +1,4 @@
-package peerMessages
+package messages
 
 import (
 	// "spotseek/src/slskClient/peer"
@@ -7,12 +7,11 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"spotseek/src/slsk/messages"
 	"spotseek/src/slsk/shared"
 )
 
 type PeerMessageReader struct {
-	*messages.MessageReader
+	*MessageReader
 }
 
 func (mr *PeerMessageReader) HandlePeerMessage() (map[string]interface{}, error) {
@@ -91,7 +90,7 @@ func (mr *PeerMessageReader) HandleFileSearchResponse() (map[string]interface{},
 
 	// Create a new MessageReader for the decompressed data
 	decompressedReader := &PeerMessageReader{
-		MessageReader: messages.NewMessageReader(decompressed),
+		MessageReader: NewMessageReader(decompressed),
 	}
 
 	username := decompressedReader.ReadString()

@@ -7,11 +7,11 @@ import (
 	"net"
 )
 
-type Listener struct {
+type Connection struct {
 	net.Conn
 }
 
-func (listener *Listener) SendMessage(message []byte) error {
+func (listener *Connection) SendMessage(message []byte) error {
 	if listener == nil {
 		return errors.New("connection is not established")
 	}
@@ -25,8 +25,4 @@ func (listener *Listener) SendMessage(message []byte) error {
 	log.Printf("Sent code %d; Message: %s", binary.LittleEndian.Uint32(message[4:8]), string(message[8:]))
 	log.Println("------------------- End of message ----------------")
 	return nil
-}
-
-func NewServer() *Listener {
-	return &Listener{}
 }
