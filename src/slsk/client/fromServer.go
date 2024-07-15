@@ -44,7 +44,7 @@ func (c *SlskClient) HandleServerMessage(mr *serverMessages.ServerMessageReader)
 		decoded, err = c.HandleMessageUser(mr)
 	case 26:
 		decoded, err = c.HandleFileSearch(mr)
-	case 32:
+	case 36:
 		decoded, err = c.HandleGetUserStats(mr)
 	case 41:
 		decoded, err = c.HandleRelog(mr)
@@ -289,8 +289,9 @@ func (c *SlskClient) HandleUserJoinedRoom(mr *serverMessages.ServerMessageReader
 	decoded["room"] = mr.ReadString()
 	decoded["username"] = mr.ReadString()
 	decoded["status"] = mr.ReadInt32()
-	decoded["speed"] = mr.ReadInt32()
-	decoded["downloadNum"] = mr.ReadInt64()
+	decoded["avgSpeed"] = mr.ReadInt32()
+	decoded["uploadNum"] = mr.ReadInt32()
+	decoded["unknown"] = mr.ReadInt32()
 	decoded["files"] = mr.ReadInt32()
 	decoded["folders"] = mr.ReadInt32()
 	decoded["slotsFree"] = mr.ReadInt32()
