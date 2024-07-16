@@ -6,13 +6,36 @@ import (
 
 type DistributedPeer interface {
 	BasePeer
-	SearchRequest()
-	BranchLevel()
-	BranchRoot()
-	DistributedMessage()
+	SearchRequest(username string, token uint32, query string) error
+	BranchLevel(branchLevel uint32) error
+	BranchRoot(branchRoot string) error
+	DistributedMessage(embeddedMessage string) error
+	ChildDepth(depth uint32) error
+	GetBranchLevel() int
+	GetBranchRoot() string
+	GetChildDepth() int
+	SetBranchLevel(level int)
+	SetBranchRoot(root string)
+	SetChildDepth(depth int)
 }
 
-func (peer *Peer) SearchRequest(username string, token uint32, query string) error {
+type DistributedPeerImpl struct {
+	*Peer
+	branchLevel int
+	branchRoot  string
+	childDepth  int
+}
+
+func NewDistributedPeer(peer *Peer) *DistributedPeerImpl {
+	return &DistributedPeerImpl{
+		Peer:        peer,
+		branchLevel: -1,
+		branchRoot:  "",
+		childDepth:  -1,
+	}
+}
+
+func (peer *DistributedPeerImpl) SearchRequest(username string, token uint32, query string) error {
 	mb := messages.PeerMessageBuilder{
 		MessageBuilder: messages.NewMessageBuilder(),
 	}
@@ -25,7 +48,7 @@ func (peer *Peer) SearchRequest(username string, token uint32, query string) err
 	return err
 }
 
-func (peer *Peer) BranchLevel(branchLevel uint32) error {
+func (peer *DistributedPeerImpl) BranchLevel(branchLevel uint32) error {
 	mb := messages.PeerMessageBuilder{
 		MessageBuilder: messages.NewMessageBuilder(),
 	}
@@ -35,7 +58,7 @@ func (peer *Peer) BranchLevel(branchLevel uint32) error {
 	return err
 }
 
-func (peer *Peer) BranchRoot(branchRoot string) error {
+func (peer *DistributedPeerImpl) BranchRoot(branchRoot string) error {
 	mb := messages.PeerMessageBuilder{
 		MessageBuilder: messages.NewMessageBuilder(),
 	}
@@ -46,7 +69,7 @@ func (peer *Peer) BranchRoot(branchRoot string) error {
 }
 
 // https://nicotine-plus.org/doc/SLSKPROTOCOL.html#distributed-code-93
-func (peer *Peer) DistriubtedMessage(embeddedMessage string) error {
+func (peer *DistributedPeerImpl) DistributedMessage(embeddedMessage string) error {
 	mb := messages.PeerMessageBuilder{
 		MessageBuilder: messages.NewMessageBuilder(),
 	}
@@ -55,4 +78,28 @@ func (peer *Peer) DistriubtedMessage(embeddedMessage string) error {
 	msg := mb.Build(93)
 	err := peer.SendMessage(msg)
 	return err
+}
+
+func (peer *DistributedPeerImpl) GetBranchLevel() int {
+	return peer.branchLevel
+}
+
+func (peer *DistributedPeerImpl) GetBranchRoot() string {
+	return peer.branchRoot
+}
+
+func (peer *DistributedPeerImpl) GetChildDepth() int {
+	return peer.childDepth
+}
+
+func (peer *DistributedPeerImpl) SetBranchLevel(level int) {
+	peer.branchLevel = level
+}
+
+func (peer *DistributedPeerImpl) SetBranchRoot(root string) {
+	peer.branchRoot = root
+}
+
+func (peer *DistributedPeerImpl) SetChildDepth(depth int) {
+	peer.childDepth = depth
 }

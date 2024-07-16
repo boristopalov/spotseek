@@ -48,27 +48,23 @@ func (c *SlskClient) FileSearch(query string) {
 func (c *SlskClient) ConnectToPeer(username string, connType string) {
 	// First, check if we're already connected to this peer
 	//
-	if _, connected := c.ConnectedPeers[username]; connected {
-		log.Printf("Already connected to %s", username)
+	if peer := c.PeerManager.GetPeer(username); peer != nil {
 		return
 	}
 	// Step 1: indirect connection request via sending ConnectToPeer message to Soulseek
-	c.RequestPeerConnection(username, connType, c.NextConnectionToken())
+	token := c.NextConnectionToken()
+	c.PendingPeerConnections[token] = PendingTokenConn{username: username, connType: connType}
+
+	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
+	msg := mb.ConnectToPeer(token, username, connType)
+	c.ServerConnection.SendMessage(msg)
 
 	// Step 1.5: Initialize direct connection request
 	// First we need to get the peer's address
 	// see fromServer.HandleGetPeerAddress for rest of implementation
 	// we establish a connection to a peer when we receive info about their IP address
-	c.PendingUsernameConnTypes[username] = connType
+	c.PeerManager.AddPendingPeer(username, connType)
 	c.GetPeerAddress(username)
-}
-
-func (c *SlskClient) RequestPeerConnection(username, connType string, token uint32) {
-	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
-	msg := mb.ConnectToPeer(token, username, connType)
-	c.PendingTokenConnTypes[token] = PendingTokenConn{username: username, connType: connType}
-	log.Println("attempting indirect connection to", username, "with connection type", connType)
-	c.ServerConnection.SendMessage(msg)
 }
 
 func (c *SlskClient) CantConnectToPeer(token uint32, username string) {

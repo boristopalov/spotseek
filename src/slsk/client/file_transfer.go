@@ -18,9 +18,9 @@ func (c *SlskClient) QueueDownload(username, filename string, size int64) error 
 	}
 
 	c.mu.RLock()
-	peer, ok := c.ConnectedPeers[username]
+	peer := c.PeerManager.GetPeer(username)
 	c.mu.RUnlock()
-	if !ok {
+	if peer == nil {
 		return errors.New("not connected to peer")
 	}
 
