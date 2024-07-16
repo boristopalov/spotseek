@@ -23,26 +23,31 @@ type PendingTokenConn struct {
 }
 
 type SlskClient struct {
-	Host                     string
-	Port                     int
-	ServerConnection         *network.Connection
-	Listener                 net.Listener
-	ConnectedPeers           map[string]peer.Peer // username --> Peer
-	mu                       sync.RWMutex
-	fileMutex                sync.RWMutex
-	User                     string               // the user that is logged in
-	UsernameIps              map[string]IP        // username -> IP address
-	PendingPeerInits         map[string]peer.Peer // username -> Peer
-	PendingUsernameConnTypes map[string]string
-	PendingTokenConnTypes    map[uint32]PendingTokenConn // token --> connType
-	TokenSearches            map[uint32]string
-	ConnectionToken          uint32
-	SearchToken              uint32
-	SearchResults            map[uint32][]shared.SearchResult // token --> search results
-	DownloadQueue            map[string]*Transfer
-	UploadQueue              map[string]*Transfer
-	TransferListeners        []TransferListener
-	JoinedRooms              map[string][]string // room name --> users in room
+	Host             string
+	Port             int
+	ServerConnection *network.Connection
+	Listener         net.Listener
+	// ConnectedPeers           map[string]peer.Peer // username --> Peer
+	mu        sync.RWMutex
+	fileMutex sync.RWMutex
+	User      string // the user that is logged in
+	// UsernameIps              map[string]IP        // username -> IP address
+	// PendingPeerInits         map[string]peer.Peer // username -> Peer
+	// PendingUsernameConnTypes map[string]string
+	PendingPeerConnections map[uint32]PendingTokenConn // token --> connType
+	TokenSearches          map[uint32]string
+	ConnectionToken        uint32
+	SearchToken            uint32
+	SearchResults          map[uint32][]shared.SearchResult // token --> search results
+	DownloadQueue          map[string]*Transfer
+	UploadQueue            map[string]*Transfer
+	TransferListeners      []TransferListener
+	JoinedRooms            map[string][]string // room name --> users in room
+	// DistributedNetworkManager *network.DistributedNetworkManager
+	PeerManager *peer.PeerManager
+	// FileTransferManager       *network.FileTransferManager
+	// RoomManager               *rooms.RoomManager
+	EventListener <-chan peer.PeerEvent
 }
 
 type Transfer struct {
@@ -57,21 +62,27 @@ type TransferListener func(transfer *Transfer)
 
 func NewSlskClient(host string, port int) *SlskClient {
 	return &SlskClient{
-		Host:                     host,
-		Port:                     port,
-		ConnectionToken:          0,
-		SearchToken:              0,
-		DownloadQueue:            make(map[string]*Transfer),
-		UploadQueue:              make(map[string]*Transfer),
-		TransferListeners:        make([]TransferListener, 0),
-		SearchResults:            make(map[uint32][]shared.SearchResult),
-		TokenSearches:            make(map[uint32]string),
-		PendingTokenConnTypes:    make(map[uint32]PendingTokenConn),
-		PendingUsernameConnTypes: make(map[string]string),
-		UsernameIps:              make(map[string]IP),
-		ConnectedPeers:           make(map[string]peer.Peer),
-		PendingPeerInits:         make(map[string]peer.Peer),
-		JoinedRooms:              make(map[string][]string),
+		Host:                   host,
+		Port:                   port,
+		ConnectionToken:        0,
+		SearchToken:            0,
+		DownloadQueue:          make(map[string]*Transfer),
+		UploadQueue:            make(map[string]*Transfer),
+		TransferListeners:      make([]TransferListener, 0),
+		SearchResults:          make(map[uint32][]shared.SearchResult),
+		TokenSearches:          make(map[uint32]string),
+		PendingPeerConnections: make(map[uint32]PendingTokenConn),
+		// PendingUsernameConnTypes: make(map[string]string),
+		// UsernameIps: make(map[string]IP),
+		// ConnectedPeers:           make(map[string]peer.Peer),
+		// PendingPeerInits:         make(map[string]peer.Peer),
+		// JoinedRooms:              make(map[string][]string),
+		// DistributedNetwork:       network.NewDistributedNetwork(),
+		PeerManager: peer.NewPeerManager(make(chan peer.PeerEvent)),
+		// TransferManager: transfers.NewTransferManager(),
+		// SearchManager:   search.NewSearchManager(),
+		// RoomManager: rooms.NewRoomManager()
+		EventListener: make(chan peer.PeerEvent),
 	}
 }
 
@@ -88,6 +99,7 @@ func (c *SlskClient) Connect() error {
 	c.Listener = listener
 	go c.ListenForServerMessages()
 	go c.ListenForIncomingPeers()
+	// go c.ListenForEvents()
 	c.Login(config.SOULSEEK_USERNAME, config.SOULSEEK_PASSWORD)
 	c.SetWaitPort(2234)
 	log.Println("Established connection to Soulseek server")
@@ -108,4 +120,14 @@ func (c *SlskClient) Close() error {
 	c.User = ""
 	log.Println("Connection closed")
 	return nil
+}
+
+func (c *SlskClient) ListenForEvents() {
+	for event := range c.EventListener {
+		log.Printf("Event: %v", event)
+		switch event.Type {
+		case peer.CantConnectToPeer:
+			c.CantConnectToPeer(event.Peer.Token, event.Peer.Username)
+		}
+	}
 }

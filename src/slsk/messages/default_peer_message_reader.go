@@ -18,16 +18,13 @@ func (mr *PeerMessageReader) HandlePeerMessage() (map[string]interface{}, error)
 	// messageLength := mr.ReadInt32()
 	// log.Println("Message length frmo peer", messageLength)
 	code := mr.ReadInt32()
+	log.Println("Received code from peer", code)
 	if code < 1 {
 		return nil, fmt.Errorf("invalid peer code. Received code %d", code)
 	}
 	var decoded map[string]interface{}
 	var err error
 	switch code {
-	case 1: // PeerInit
-		username, connType, token := mr.ParsePeerInit()
-		log.Printf("Received PeerInit from %s with connType %s and token %d", username, connType, token)
-		// Handle PeerInit
 	case 4: // SharedFileList
 		// Handle SharedFileList
 	// Add more cases for other peer message types
@@ -75,6 +72,7 @@ func (mr *PeerMessageReader) HandleGetSharedFileList() {
 
 // peers will send us this after we call FileSearch with their matches
 func (mr *PeerMessageReader) HandleFileSearchResponse() (map[string]interface{}, error) {
+	log.Println("Received FileSearchResponse")
 	r, err := zlib.NewReader(bytes.NewReader(mr.Message))
 	if err != nil {
 		log.Printf("Error decompressing message: %s", err)
