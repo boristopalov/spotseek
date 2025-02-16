@@ -1,3 +1,3 @@
-# spotseek (WIP)
+# spotseek
 
-Golang client for the Soulseek protocol, with Spotify integration
+Golang client for the Soulseek protocol
