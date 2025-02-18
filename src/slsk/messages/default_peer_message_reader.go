@@ -6,30 +6,27 @@ import (
 	"compress/zlib"
 	"fmt"
 	"io"
-	"log"
+	"spotseek/logging"
 	"spotseek/src/slsk/shared"
 )
+
+var log = logging.GetLogger()
 
 type PeerMessageReader struct {
 	*MessageReader
 }
 
 func (mr *PeerMessageReader) HandlePeerMessage() (map[string]interface{}, error) {
-	// messageLength := mr.ReadInt32()
-	// log.Println("Message length frmo peer", messageLength)
+	messageLength := mr.ReadInt32()
 	code := mr.ReadInt32()
-	log.Println("Received code from peer", code)
 	if code < 1 {
 		return nil, fmt.Errorf("invalid peer code. Received code %d", code)
 	}
 	var decoded map[string]interface{}
 	var err error
 	switch code {
-	case 4: // SharedFileList
-		// Handle SharedFileList
-	// Add more cases for other peer message types
-	// case 4:
-	// 	decoded = mr.HandleGetSharedFileList()
+	case 4:
+		decoded, err = mr.HandleGetSharedFileList()
 	// case 5:
 	// 	decoded = mr.HandleSharedFileListResponse()
 	case 9:
@@ -57,32 +54,33 @@ func (mr *PeerMessageReader) HandlePeerMessage() (map[string]interface{}, error)
 	// case 51:
 	// 	decoded = mr.HandlePlaceInQueueRequest()
 	default:
-		log.Println("Unsupported peer message code!", code)
+		log.Error("Unsupported peer message code", "code", code)
 	}
+	log.Info("Message from peer", "length", messageLength, "code", code, "message", decoded)
 	return decoded, err
 }
 
-func (mr *PeerMessageReader) ParsePeerInit() (string, string, uint32) {
-	return mr.ReadString(), mr.ReadString(), mr.ReadInt32()
+func (mr *PeerMessageReader) HandleGetSharedFileList() (map[string]interface{}, error) {
+	// mr.HandleSharedFileListResponse()
+	return nil, nil
 }
 
-func (mr *PeerMessageReader) HandleGetSharedFileList() {
-
+func (mr *PeerMessageReader) HandleSharedFileListResponse() (map[string]interface{}, error) {
+	return nil, nil
 }
 
 // peers will send us this after we call FileSearch with their matches
 func (mr *PeerMessageReader) HandleFileSearchResponse() (map[string]interface{}, error) {
-	log.Println("Received FileSearchResponse")
 	r, err := zlib.NewReader(bytes.NewReader(mr.Message))
 	if err != nil {
-		log.Printf("Error decompressing message: %s", err)
+		log.Error("Error decompressing message", "err", err)
 		return nil, err
 	}
 
 	defer r.Close()
 	decompressed, err := io.ReadAll(r)
 	if err != nil {
-		log.Printf("Error decompressing message: %s", err)
+		log.Error("Error decompressing message", "err", err)
 		return nil, err
 	}
 

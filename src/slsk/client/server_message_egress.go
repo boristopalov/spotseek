@@ -56,11 +56,10 @@ func (c *SlskClient) ConnectToPeer(username string, connType string) {
 	msg := mb.ConnectToPeer(token, username, connType)
 	c.ServerConnection.SendMessage(msg)
 
-	// Step 1.5: Initialize direct connection request
 	// First we need to get the peer's address
 	// see fromServer.HandleGetPeerAddress for rest of implementation
 	// we establish a connection to a peer when we receive info about their IP address
-	c.PeerManager.AddPendingPeer(username, connType)
+	// c.PeerManager.AddPendingPeer(username, connType)
 	c.GetPeerAddress(username)
 }
 

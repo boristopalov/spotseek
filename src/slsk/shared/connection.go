@@ -1,4 +1,4 @@
-package network
+package shared
 
 import (
 	"encoding/binary"
@@ -25,9 +25,10 @@ func (conn *Connection) SendMessage(message []byte) error {
 
 	log := logging.GetLogger()
 
-	log.Info("Sent Message",
+	log.Info("Sending Message",
 		"to", conn.RemoteAddr().String(),
 		"code", binary.LittleEndian.Uint32(message[4:8]),
+		"length", binary.LittleEndian.Uint32(message[:4]),
 		"message", string(message[8:]))
 	return nil
 }

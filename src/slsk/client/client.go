@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"spotseek/logging"
-	"spotseek/src/slsk/network"
 	"spotseek/src/slsk/peer"
 	"spotseek/src/slsk/shared"
 	"sync"
@@ -24,16 +23,13 @@ type PendingTokenConn struct {
 }
 
 type SlskClient struct {
-	Host             string
-	Port             int
-	ServerConnection *network.Connection
-	Listener         net.Listener
-	mu               sync.RWMutex
-	fileMutex        sync.RWMutex
-	User             string // the user that is logged in
-	// UsernameIps              map[string]IP        // username -> IP address
-	// PendingPeerInits         map[string]peer.Peer // username -> Peer
-	// PendingUsernameConnTypes map[string]string
+	Host                   string
+	Port                   int
+	ServerConnection       *shared.Connection
+	Listener               net.Listener
+	mu                     sync.RWMutex
+	fileMutex              sync.RWMutex
+	User                   string                      // the user that is logged in
 	PendingPeerConnections map[uint32]PendingTokenConn // token --> connType
 	TokenSearches          map[uint32]string
 	ConnectionToken        uint32
@@ -47,7 +43,6 @@ type SlskClient struct {
 	PeerManager *peer.PeerManager
 	// FileTransferManager       *network.FileTransferManager
 	// RoomManager               *rooms.RoomManager
-	EventListener <-chan peer.PeerEvent
 }
 
 type Transfer struct {
@@ -74,15 +69,12 @@ func NewSlskClient(host string, port int) *SlskClient {
 		PendingPeerConnections: make(map[uint32]PendingTokenConn),
 		// PendingUsernameConnTypes: make(map[string]string),
 		// UsernameIps: make(map[string]IP),
-		// ConnectedPeers:           make(map[string]peer.Peer),
-		// PendingPeerInits:         make(map[string]peer.Peer),
 		// JoinedRooms:              make(map[string][]string),
 		// DistributedNetwork:       network.NewDistributedNetwork(),
 		PeerManager: peer.NewPeerManager(make(chan peer.PeerEvent)),
 		// TransferManager: transfers.NewTransferManager(),
 		// SearchManager:   search.NewSearchManager(),
 		// RoomManager: rooms.NewRoomManager()
-		EventListener: make(chan peer.PeerEvent),
 	}
 }
 
@@ -94,9 +86,9 @@ func (c *SlskClient) Connect(username, pw string) error {
 	}
 	listener, err := net.Listen("tcp", ":2234")
 	if err != nil {
-		return errors.New("unable to listen to port 2234; " + err.Error())
+		return errors.New("unable to listen on port 2234; " + err.Error())
 	}
-	c.ServerConnection = &network.Connection{Conn: conn}
+	c.ServerConnection = &shared.Connection{Conn: conn}
 	c.Listener = listener
 	go c.ListenForServerMessages()
 	go c.ListenForIncomingPeers()
@@ -121,13 +113,3 @@ func (c *SlskClient) Close() error {
 	log.Info("Connection closed")
 	return nil
 }
-
-// func (c *SlskClient) ListenForEvents() {
-// 	for event := range c.EventListener {
-// 		log.Printf("Event: %v", event)
-// 		switch event.Type {
-// 		case peer.CantConnectToPeer:
-// 			c.CantConnectToPeer(event.Peer.Token, event.Peer.Username)
-// 		}
-// 	}
-// }

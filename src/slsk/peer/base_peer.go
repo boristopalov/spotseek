@@ -2,12 +2,10 @@ package peer
 
 import (
 	"encoding/binary"
-	"fmt"
 	"io"
 	"net"
 	"spotseek/src/slsk/messages"
-	listen "spotseek/src/slsk/network"
-	"time"
+	"spotseek/src/slsk/shared"
 )
 
 type Event int
@@ -25,14 +23,15 @@ type BasePeer interface {
 }
 
 type Peer struct {
-	Username       string
-	SlskListener   net.Listener
-	PeerConnection *listen.Connection
-	ConnType       string
-	Token          uint32
-	Host           string
-	Port           uint32
-	EventEmitter   chan<- PeerEvent
+	Username       string             `json:"username"`
+	SlskListener   net.Listener       `json:"-"` // Skip in JSON
+	PeerConnection *shared.Connection `json:"-"` // Skip in JSON
+	ConnType       string             `json:"conn_type"`
+	Token          uint32             `json:"token"`
+	Host           string             `json:"host"`
+	Port           uint32             `json:"port"`
+	Privileged     uint8              `json:"privileged"`
+	EventEmitter   chan<- PeerEvent   `json:"-"` // Skip in JSON
 }
 
 type PeerEvent struct {
@@ -44,32 +43,13 @@ func (p *Peer) SendMessage(msg []byte) error {
 	return p.PeerConnection.SendMessage(msg)
 }
 
-func newPeer(username string, connType string, token uint32, host string, port uint32, eventEmitter chan<- PeerEvent) (*Peer, error) {
-	c, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host, port), 10*time.Second)
-	if err != nil {
-		return nil, fmt.Errorf("unable to establish connection to peer %s: %v", username, err)
-	} else {
-		log.Info("established TCP connection to peer", "username", username, "peerHost", host, "peerPort", port)
-		return &Peer{
-			Username:       username,
-			PeerConnection: &listen.Connection{Conn: c},
-			ConnType:       connType,
-			Token:          token,
-			Host:           host,
-			Port:           port,
-			EventEmitter:   eventEmitter,
-		}, nil
-	}
-}
-
 func (peer *Peer) ListenForMessages() {
 	readBuffer := make([]byte, 4096)
 	var currentMessage []byte
 	var messageLength uint32
 
 	defer func() {
-		log.Warn("Stopped listening for messages from peer", "username", peer.Username)
-		peer.ClosePeer()
+		log.Warn("Stopped listening for messages from peer", "peer", peer)
 		peer.EventEmitter <- PeerEvent{Type: PeerDisconnected, Peer: peer}
 	}()
 
@@ -95,7 +75,6 @@ func (peer *Peer) ListenForMessages() {
 
 func (peer *Peer) ClosePeer() {
 	peer.PeerConnection.Close()
-
 }
 
 func (peer *Peer) processMessage(data []byte, messageLength *uint32) []byte {
@@ -114,19 +93,18 @@ func (peer *Peer) processMessage(data []byte, messageLength *uint32) []byte {
 
 		message := data[:*messageLength]
 		mr := messages.PeerMessageReader{MessageReader: messages.NewMessageReader(message)}
-		msg, err := mr.HandlePeerMessage()
+		_, err := mr.HandlePeerMessage()
 		if err != nil {
-			log.Error("Error reading message from peer", "username", peer.Username, "err", err)
-		} else {
-			log.Info("Message from peer", "username", peer.Username, "message", msg)
-			// TODO: Search Manager
-			// if msg["type"] == "FileSearchResponse" {
-			// 	peer.EventEmitter <- PeerEvent{Type: FileSearchResponse, Peer: peer}
-			// 	// c.fileMutex.Lock()
-			// 	// c.SearchResults[msg["token"].(uint32)] = msg["results"].([]shared.SearchResult)
-			// 	// c.fileMutex.Unlock()
-			// }
+			log.Error("Error reading message from peer", "peer", peer, "err", err)
+			return data
 		}
+		// TODO: Search Manager
+		// if msg["type"] == "FileSearchResponse" {
+		// 	peer.EventEmitter <- PeerEvent{Type: FileSearchResponse, Peer: peer}
+		// 	// c.fileMutex.Lock()
+		// 	// c.SearchResults[msg["token"].(uint32)] = msg["results"].([]shared.SearchResult)
+		// 	// c.fileMutex.Unlock()
+		// }
 
 		data = data[*messageLength:]
 		*messageLength = 0

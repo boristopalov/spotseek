@@ -17,8 +17,6 @@ type ServerMessageBuilder struct {
 }
 
 func (mb *ServerMessageBuilder) Login(username string, password string) []byte {
-	// Example usage to construct a login message
-	// Add message contents
 	mb.AddString(username) // Username
 	mb.AddString(password) // Password
 	mb.AddInt32(VERSION)   // Version
@@ -27,7 +25,6 @@ func (mb *ServerMessageBuilder) Login(username string, password string) []byte {
 	mb.AddInt32(MINOR)                        // Minor version
 
 	// Build the message
-
 	message := mb.Build(1)
 	return message
 

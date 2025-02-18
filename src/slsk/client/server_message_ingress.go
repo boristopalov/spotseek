@@ -56,7 +56,7 @@ func (c *SlskClient) handleServerMessage(messageData []byte) {
 	code := mr.ReadInt32()
 	log := logging.GetLogger()
 	// log.Println("--------------- Decoding server message ----------------")
-	log.Info("server message code", "code", code)
+	// log.Info("server message code", "code", code)
 	switch code {
 	case 1:
 		decoded, err = c.HandleLogin(mr)
@@ -142,7 +142,7 @@ func (c *SlskClient) handleServerMessage(messageData []byte) {
 	if err != nil {
 		log.Error("error processing server msg", "err", err)
 	}
-	log.Info("server message", "message", decoded)
+	log.Info("parsed server message", "code", code, "message", decoded)
 }
 
 func (c *SlskClient) HandleLogin(mr *messages.ServerMessageReader) (map[string]interface{}, error) {
@@ -174,14 +174,10 @@ func (c *SlskClient) HandleGetPeerAddress(mr *messages.ServerMessageReader) (map
 		return decoded, nil
 	}
 	uIP := IP{IP: ip, port: port}
-	connType := c.PeerManager.GetPendingPeer(username)
-	if connType == "" {
-		log.Error("No pending connection", "username", username)
-		return decoded, nil
-	}
 
 	// Step 2 of Peer Connection: direct connection request
-	err := c.PeerManager.ConnectToPeer(uIP.IP, uIP.port, username, connType, c.ConnectionToken)
+	// idk if this is correct
+	err := c.PeerManager.ConnectToPeer(uIP.IP, uIP.port, username, "P", c.ConnectionToken)
 	return decoded, err
 }
 
@@ -344,50 +340,12 @@ func (c *SlskClient) HandleConnectToPeer(mr *messages.ServerMessageReader) (map[
 	decoded["port"] = port
 	decoded["token"] = token
 	decoded["privileged"] = privileged
-	log.Info("Attempting to connect to peer",
+	log.Info("Incoming connection attempt from peer",
 		"username", username,
 		"connType", cType,
 	)
 
-	c.PeerManager.AddPendingPeer(username, cType)
-	go func() {
-		// try direct connection first
-		err := c.PeerManager.ConnectToPeer(ip, port, username, cType, token)
-		if err != nil {
-			log.Error("Failed to connect to peer",
-				"username", username,
-				"err", err,
-			)
-			return
-		}
-		peer := c.PeerManager.GetPeer(username)
-		if peer == nil {
-			log.Error("Failed to connect to peer",
-				"username", username,
-				"err", err,
-			)
-			return
-		}
-		// try to pierce firewall if sending peer init fails
-		for i := 0; i < 6; i++ {
-			err := peer.PierceFirewall(token)
-			if err == nil {
-				c.PeerManager.AddPeer(peer)
-				c.PeerManager.RemovePendingPeer(username)
-				return
-			}
-			log.Error("Failed to pierce firewall",
-				"username", username,
-				"err", err,
-				"attempt", i+1,
-			)
-			time.Sleep(10 * time.Second)
-		}
-		log.Error("Failed to connect to peer",
-			"username", username,
-			"err", err,
-		)
-	}()
+	go c.PeerManager.HandleNewPeer(username, cType, ip, port, token, privileged)
 	return decoded, nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"strconv"
 	"sync"
 )
@@ -160,4 +161,9 @@ func GetLogger() *slog.Logger {
 		logger = slog.New(NewHandler(opts))
 	})
 	return logger
+}
+
+func LogFatal(l *slog.Logger, msg string, args ...any) {
+	l.Error(msg, args...)
+	os.Exit(1)
 }

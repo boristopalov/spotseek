@@ -2,14 +2,16 @@ package main
 
 import (
 	"context"
-	"log"
 	"net/http"
+	"spotseek/logging"
 	"spotseek/src/config"
 	"spotseek/src/slsk/api"
 	"spotseek/src/slsk/client"
 
 	"github.com/go-chi/chi/v5"
 )
+
+var log = logging.GetLogger()
 
 type ContextKey string
 
@@ -19,16 +21,11 @@ func (c ContextKey) String() string {
 
 func main() {
 
-	// show line number in logs
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
-
 	slskClient := client.NewSlskClient("server.slsknet.org", 2242)
 	err := slskClient.Connect(config.SOULSEEK_USERNAME, config.SOULSEEK_PASSWORD)
 	if err != nil {
-		log.Fatalf("Failed to connect to soulseek: %v", err)
+		logging.LogFatal(log, "Failed to connect to soulseek", "err", err)
 	}
-	log.Println(slskClient)
-
 	mux := chi.NewRouter()
 
 	// middleware to pass in slskCLient into the context
@@ -39,9 +36,6 @@ func main() {
 			ctx = context.WithValue(ctx, "slskClient", slskClient)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
-	})
-	mux.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		log.Println("hey")
 	})
 	// rdb := redis.NewClient(&redis.Options{
 	// 		Addr:     config.REDIS_URI,
