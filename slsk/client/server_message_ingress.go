@@ -3,6 +3,8 @@ package client
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
+	"runtime/debug"
 	"spotseek/logging"
 	"spotseek/slsk/messages"
 	"time"
@@ -27,6 +29,9 @@ func (c *SlskClient) ListenForServerMessages() {
 }
 
 func (c *SlskClient) processServerMessages(data []byte, messageLength *uint32) []byte {
+	if len(data) == 0 {
+		return data
+	}
 	for {
 		if *messageLength == 0 {
 			if len(data) < 4 {
@@ -50,6 +55,16 @@ func (c *SlskClient) processServerMessages(data []byte, messageLength *uint32) [
 func (c *SlskClient) handleServerMessage(messageData []byte) {
 	reader := messages.NewMessageReader(messageData)
 	mr := &messages.ServerMessageReader{MessageReader: reader}
+
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error("recovered from panic",
+				"error", r,
+			)
+			// Optionally log the stack trace
+			debug.PrintStack()
+		}
+	}()
 
 	var decoded map[string]interface{}
 	var err error
@@ -142,7 +157,7 @@ func (c *SlskClient) handleServerMessage(messageData []byte) {
 	if err != nil {
 		log.Error("error processing server msg", "err", err)
 	}
-	log.Info("parsed server message", "code", code, "message", decoded)
+	log.Info("message from server", "code", code, "message", decoded)
 }
 
 func (c *SlskClient) HandleLogin(mr *messages.ServerMessageReader) (map[string]interface{}, error) {
@@ -160,7 +175,8 @@ func (c *SlskClient) HandleLogin(mr *messages.ServerMessageReader) (map[string]i
 	return decoded, nil
 }
 
-// we are gonna receive this when we try connecting to a peer
+// Typically, to connect to a peer, we send a ConnectToPeer and GetPeerAddress
+// When we get ip and port info of peer here, we attempt a direct connection request
 func (c *SlskClient) HandleGetPeerAddress(mr *messages.ServerMessageReader) (map[string]interface{}, error) {
 	decoded := make(map[string]interface{})
 	username := mr.ReadString()
@@ -170,15 +186,18 @@ func (c *SlskClient) HandleGetPeerAddress(mr *messages.ServerMessageReader) (map
 	decoded["ip"] = ip
 	decoded["port"] = port
 	if ip == "0.0.0.0" {
-		log.Error("Can't connect to offline user", "username", username)
-		return decoded, nil
+		return decoded, fmt.Errorf("User is offline")
 	}
-	uIP := IP{IP: ip, port: port}
-
-	// Step 2 of Peer Connection: direct connection request
-	// idk if this is correct
-	err := c.PeerManager.ConnectToPeer(uIP.IP, uIP.port, username, "P", c.ConnectionToken)
-	return decoded, err
+	peerInfo, found := c.PendingOutgoingPeerConnections[username]
+	if !found {
+		return decoded, fmt.Errorf("Np pending outgoing peer connection for user %s", username)
+	}
+	go func() {
+		c.PeerManager.ConnectToPeer(ip, port, username, peerInfo.connType, peerInfo.token)
+		c.RemovePendingPeer(username)
+		delete(c.PendingOutgoingPeerConnectionTokens, peerInfo.token)
+	}()
+	return decoded, nil
 }
 
 func (c *SlskClient) HandleAddUser(mr *messages.ServerMessageReader) (map[string]interface{}, error) {
@@ -329,23 +348,24 @@ func (c *SlskClient) HandleConnectToPeer(mr *messages.ServerMessageReader) (map[
 	decoded := make(map[string]interface{})
 	decoded["type"] = "connectToPeer"
 	username := mr.ReadString()
-	cType := mr.ReadString()
+	connType := mr.ReadString()
 	ip := mr.ReadIp()
 	port := mr.ReadInt32()
 	token := mr.ReadInt32()
 	privileged := mr.ReadInt8()
 	decoded["username"] = username
-	decoded["cType"] = cType
+	decoded["connType"] = connType
 	decoded["ip"] = ip
 	decoded["port"] = port
 	decoded["token"] = token
 	decoded["privileged"] = privileged
-	log.Info("Incoming connection attempt from peer",
-		"username", username,
-		"connType", cType,
-	)
 
-	go c.PeerManager.HandleNewPeer(username, cType, ip, port, token, privileged)
+	go func() {
+		err := c.PeerManager.HandleNewPeer(username, connType, ip, port, token, privileged)
+		if err != nil {
+			c.CantConnectToPeer(token, username)
+		}
+	}()
 	return decoded, nil
 }
 
@@ -400,6 +420,7 @@ func (c *SlskClient) HandlePrivilegedUsers(mr *messages.ServerMessageReader) (ma
 	for i := uint32(0); i < userCount; i++ {
 		user := mr.ReadString()
 		users = append(users, user)
+		// c.ConnectToPeer(user, "P")
 	}
 	decoded["users"] = users
 	return decoded, nil
@@ -601,8 +622,11 @@ func (c *SlskClient) HandlePrivateRoomOwned(mr *messages.ServerMessageReader) (m
 func (c *SlskClient) HandleCantConnectToPeer(mr *messages.ServerMessageReader) (map[string]interface{}, error) {
 	decoded := make(map[string]interface{})
 	decoded["type"] = "cantConnectToPeer"
-	decoded["token"] = mr.ReadInt32()
-	decoded["username"] = mr.ReadString()
+	token := mr.ReadInt32()
+	username := mr.ReadString()
+	decoded["token"] = token
+	decoded["username"] = username
+	c.RemovePendingPeer(username)
 	return decoded, nil
 }
 

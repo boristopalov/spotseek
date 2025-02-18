@@ -43,23 +43,24 @@ func (c *SlskClient) FileSearch(query string) {
 }
 
 func (c *SlskClient) ConnectToPeer(username string, connType string) {
-	// First, check if we're already connected to this peer
-	//
 	if peer := c.PeerManager.GetPeer(username); peer != nil {
 		return
 	}
-	// Step 1: indirect connection request via sending ConnectToPeer message to Soulseek
 	token := c.NextConnectionToken()
-	c.PendingPeerConnections[token] = PendingTokenConn{username: username, connType: connType}
+
+	log.Info("Requesting indirect connection to user",
+		"token", token,
+		"username", username,
+		"connType", connType,
+	)
+
+	c.AddPendingPeer(token, username, connType, 0)
 
 	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	msg := mb.ConnectToPeer(token, username, connType)
 	c.ServerConnection.SendMessage(msg)
 
-	// First we need to get the peer's address
-	// see fromServer.HandleGetPeerAddress for rest of implementation
-	// we establish a connection to a peer when we receive info about their IP address
-	// c.PeerManager.AddPendingPeer(username, connType)
+	// Attempt to get IP of user so that we can send a direct connection request
 	c.GetPeerAddress(username)
 }
 

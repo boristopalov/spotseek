@@ -2,6 +2,7 @@ package peer
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"spotseek/slsk/messages"
@@ -25,7 +26,7 @@ type Peer struct {
 	Username       string             `json:"username"`
 	SlskListener   net.Listener       `json:"-"` // Skip in JSON
 	PeerConnection *shared.Connection `json:"-"` // Skip in JSON
-	ConnType       string             `json:"conn_type"`
+	ConnType       string             `json:"connType"`
 	Token          uint32             `json:"token"`
 	Host           string             `json:"host"`
 	Port           uint32             `json:"port"`
@@ -39,6 +40,12 @@ type PeerEvent struct {
 }
 
 func (p *Peer) SendMessage(msg []byte) error {
+	if p == nil {
+		return fmt.Errorf("Tried to send message to peer but peer is nil!")
+	}
+	if p.PeerConnection == nil {
+		return fmt.Errorf("Cannot send message to peer. No active connection")
+	}
 	return p.PeerConnection.SendMessage(msg)
 }
 

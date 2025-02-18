@@ -65,7 +65,7 @@ func readPeerInitMessage(conn net.Conn) ([]byte, error) {
 
 func (c *SlskClient) handlePierceFirewall(conn net.Conn, mr *messages.PeerInitMessageReader) (map[string]interface{}, error) {
 	token := mr.ParsePierceFirewall()
-	usernameAndConnType, ok := c.PendingPeerConnections[token]
+	usernameAndConnType, ok := c.PendingOutgoingPeerConnectionTokens[token]
 	if !ok {
 		log.Error("No pending connection for token", "token", token)
 		return map[string]interface{}{
@@ -78,6 +78,9 @@ func (c *SlskClient) handlePierceFirewall(conn net.Conn, mr *messages.PeerInitMe
 	if err != nil {
 		return nil, err
 	}
+	c.RemovePendingPeer(usernameAndConnType.username)
+	delete(c.PendingOutgoingPeerConnectionTokens, token)
+
 	peer := c.PeerManager.AddPeer(usernameAndConnType.username, usernameAndConnType.connType, host, port, token, 0)
 	if peer == nil {
 		return nil, fmt.Errorf("failed to connect to peer: %v", peer)

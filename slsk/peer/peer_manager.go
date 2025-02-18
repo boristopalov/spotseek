@@ -80,6 +80,7 @@ func (manager *PeerManager) AddPeer(username string, connType string, ip string,
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	manager.peers[username] = peer
+	log.Info("connected to peer", "peer", peer)
 	return peer
 }
 
@@ -103,7 +104,6 @@ func NewPeer(username string, connType string, token uint32, host string, port u
 		)
 		return nil, fmt.Errorf("unable to establish connection to peer %s: %v", username, err)
 	} else {
-		log.Info("established TCP connection to peer", "username", username, "peerHost", host, "peerPort", port)
 		return &Peer{
 			Username:       username,
 			PeerConnection: &shared.Connection{Conn: c},
@@ -128,8 +128,8 @@ func (mgr *PeerManager) HandleNewPeer(username string, connType string, ip strin
 			"peer", peer,
 			"err", err,
 		)
+		return err
 	}
-	log.Info("Connected to peer", "peer", peer)
 	go peer.ListenForMessages()
 	return nil
 }

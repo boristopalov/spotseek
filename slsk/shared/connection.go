@@ -25,7 +25,7 @@ func (conn *Connection) SendMessage(message []byte) error {
 
 	log := logging.GetLogger()
 
-	log.Info("Sending Message",
+	log.Info("sending message",
 		"to", conn.RemoteAddr().String(),
 		"code", binary.LittleEndian.Uint32(message[4:8]),
 		"length", binary.LittleEndian.Uint32(message[:4]),
