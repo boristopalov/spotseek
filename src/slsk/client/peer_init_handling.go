@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"spotseek/src/slsk/messages"
 )
@@ -14,19 +13,19 @@ func (c *SlskClient) ListenForIncomingPeers() {
 	for {
 		peerConn, err := c.Listener.Accept()
 		if err != nil {
-			log.Printf("Error accepting peer connection: %v", err)
+			log.Error("Error accepting peer connection", "err", err)
 			continue
 		}
 		message, err := readPeerInitMessage(peerConn)
 		if err != nil {
-			log.Printf("Error reading peer message: %v", err)
+			log.Error("Error reading peer message", "err", err)
 			continue
 		}
 
 		peerMsgReader := messages.PeerInitMessageReader{MessageReader: messages.NewMessageReader(message)}
 		code := peerMsgReader.ReadInt8()
 
-		log.Printf("Peer message: code %d; address %s", code, peerConn.RemoteAddr().String())
+		log.Error("Peer message code", "code", code, "peerAddr", peerConn.RemoteAddr().String())
 
 		var decoded map[string]interface{}
 		switch code {
@@ -35,13 +34,13 @@ func (c *SlskClient) ListenForIncomingPeers() {
 		case 1:
 			decoded, err = c.handlePeerInit(peerConn, &peerMsgReader)
 		default:
-			log.Printf("unknown peer message code: %d", code)
+			log.Error("Unknown peer message code", "code", code)
 		}
 		if err != nil {
-			log.Printf("Error handling peer message: %v", err)
+			log.Error("Error handling peer message", "err", err)
 			continue
 		}
-		log.Printf("Decoded peer message: %v", decoded)
+		log.Info("Message from peer", "message", decoded)
 	}
 }
 
@@ -70,13 +69,13 @@ func (c *SlskClient) handlePierceFirewall(conn net.Conn, mr *messages.PeerInitMe
 	token := mr.ParsePierceFirewall()
 	usernameAndConnType, ok := c.PendingPeerConnections[token]
 	if !ok {
-		log.Printf("No pending connection for token %d", token)
+		log.Error("No pending connection for token", "token", token)
 		return map[string]interface{}{
 			"token": token,
 		}, nil
 	}
 
-	log.Printf("received PierceFirewall from %s", usernameAndConnType.username)
+	log.Info("Received PierceFirewall", "username", usernameAndConnType.username)
 	return map[string]interface{}{
 		"token": token,
 	}, nil

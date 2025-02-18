@@ -55,7 +55,6 @@ func (s *SpotifyClient) generateStateCookie(w http.ResponseWriter) string {
 	http.SetCookie(w, &cookie)
 	return state
 }
-
 func (s *SpotifyClient) generateRandomString(n int) string {
 	letters := []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 	b := make([]rune, n)

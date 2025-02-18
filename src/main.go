@@ -7,10 +7,8 @@ import (
 	"spotseek/src/config"
 	"spotseek/src/slsk/api"
 	"spotseek/src/slsk/client"
-	"spotseek/src/spotify"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/redis/go-redis/v9"
 )
 
 type ContextKey string
@@ -20,18 +18,12 @@ func (c ContextKey) String() string {
 }
 
 func main() {
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     config.REDIS_URI,
-		Password: config.REDIS_PASSWORD,
-		DB:       config.REDIS_DB,
-	})
 
 	// show line number in logs
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	spotifyClient := spotify.NewSpotifyClient(rdb)
 	slskClient := client.NewSlskClient("server.slsknet.org", 2242)
-	err := slskClient.Connect()
+	err := slskClient.Connect(config.SOULSEEK_USERNAME, config.SOULSEEK_PASSWORD)
 	if err != nil {
 		log.Fatalf("Failed to connect to soulseek: %v", err)
 	}
@@ -40,6 +32,7 @@ func main() {
 	mux := chi.NewRouter()
 
 	// middleware to pass in slskCLient into the context
+	// should delete
 	mux.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
@@ -50,8 +43,15 @@ func main() {
 	mux.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Println("hey")
 	})
-	mux.Get("/login", spotifyClient.LoginHandler)
-	mux.Get("/callback", spotifyClient.CallbackTokenHandler)
+	// rdb := redis.NewClient(&redis.Options{
+	// 		Addr:     config.REDIS_URI,
+	// 		Password: config.REDIS_PASSWORD,
+	// 		DB:       config.REDIS_DB,
+	// 	})
+	// spotifyClient := spotify.NewSpotifyClient(rdb)
+	// mux.Get("/login", spotifyClient.LoginHandler)
+	// mux.Get("/callback", spotifyClient.CallbackTokenHandler)
+
 	mux.Get("/connect/user/{username}/conn/{connType}", api.ConnectToPeer)
 	mux.Get("/search", api.Search)
 	mux.Get("/download", api.Download)

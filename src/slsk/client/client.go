@@ -3,14 +3,15 @@ package client
 import (
 	"errors"
 	"fmt"
-	"log"
 	"net"
-	"spotseek/src/config"
+	"spotseek/logging"
 	"spotseek/src/slsk/network"
 	"spotseek/src/slsk/peer"
 	"spotseek/src/slsk/shared"
 	"sync"
 )
+
+var log = logging.GetLogger()
 
 type IP struct {
 	IP   string
@@ -27,10 +28,9 @@ type SlskClient struct {
 	Port             int
 	ServerConnection *network.Connection
 	Listener         net.Listener
-	// ConnectedPeers           map[string]peer.Peer // username --> Peer
-	mu        sync.RWMutex
-	fileMutex sync.RWMutex
-	User      string // the user that is logged in
+	mu               sync.RWMutex
+	fileMutex        sync.RWMutex
+	User             string // the user that is logged in
 	// UsernameIps              map[string]IP        // username -> IP address
 	// PendingPeerInits         map[string]peer.Peer // username -> Peer
 	// PendingUsernameConnTypes map[string]string
@@ -86,25 +86,25 @@ func NewSlskClient(host string, port int) *SlskClient {
 	}
 }
 
-func (c *SlskClient) Connect() error {
+// Connect to soulseek server and login
+func (c *SlskClient) Connect(username, pw string) error {
 	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", c.Host, c.Port))
 	if err != nil {
 		return errors.New("unable to dial tcp connection; " + err.Error())
 	}
 	listener, err := net.Listen("tcp", ":2234")
 	if err != nil {
-		return errors.New("unable to dial tcp connection; " + err.Error())
+		return errors.New("unable to listen to port 2234; " + err.Error())
 	}
 	c.ServerConnection = &network.Connection{Conn: conn}
 	c.Listener = listener
 	go c.ListenForServerMessages()
 	go c.ListenForIncomingPeers()
-	// go c.ListenForEvents()
-	c.Login(config.SOULSEEK_USERNAME, config.SOULSEEK_PASSWORD)
+	c.Login(username, pw)
 	c.SetWaitPort(2234)
-	log.Println("Established connection to Soulseek server")
-	log.Println("Listening on port 2234")
-	c.User = config.SOULSEEK_USERNAME
+	log.Info("Established connection to Soulseek server")
+	log.Info("Listening on port 2234")
+	c.User = username
 	return nil
 }
 
@@ -118,16 +118,16 @@ func (c *SlskClient) Close() error {
 		return err
 	}
 	c.User = ""
-	log.Println("Connection closed")
+	log.Info("Connection closed")
 	return nil
 }
 
-func (c *SlskClient) ListenForEvents() {
-	for event := range c.EventListener {
-		log.Printf("Event: %v", event)
-		switch event.Type {
-		case peer.CantConnectToPeer:
-			c.CantConnectToPeer(event.Peer.Token, event.Peer.Username)
-		}
-	}
-}
+// func (c *SlskClient) ListenForEvents() {
+// 	for event := range c.EventListener {
+// 		log.Printf("Event: %v", event)
+// 		switch event.Type {
+// 		case peer.CantConnectToPeer:
+// 			c.CantConnectToPeer(event.Peer.Token, event.Peer.Username)
+// 		}
+// 	}
+// }

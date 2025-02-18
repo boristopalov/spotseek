@@ -2,10 +2,12 @@ package peer
 
 import (
 	"fmt"
-	"log"
+	"spotseek/logging"
 	"spotseek/src/config"
 	"sync"
 )
+
+var log = logging.GetLogger()
 
 type PeerManager struct {
 	peers         map[string]*Peer  // username --> Peer info
@@ -41,7 +43,10 @@ func (manager *PeerManager) AddPeer(peer *Peer) {
 func (manager *PeerManager) ConnectToPeer(ip string, port uint32, username, connType string, token uint32) error {
 	peer := manager.GetPeer(username)
 	if peer != nil && connType == peer.ConnType {
-		log.Printf("HandleConnectToPeer: Already connected to %s", username)
+		log.Warn("already connected to peer",
+			"peer", username,
+			"connType", connType,
+		)
 		return nil
 	}
 
@@ -60,7 +65,6 @@ func (manager *PeerManager) ConnectToPeer(ip string, port uint32, username, conn
 	if err != nil {
 		return err
 	}
-	log.Println("NUMBER OF CONNECTIONS:", manager.GetNumConnections())
 	go peer.ListenForMessages()
 	return nil
 }
@@ -71,7 +75,6 @@ func (manager *PeerManager) listenForEvents() {
 		case PeerConnected:
 		case PeerDisconnected:
 			manager.RemovePeer(event.Peer)
-			log.Println("NUMBER OF CONNECTIONS:", manager.GetNumConnections())
 		}
 	}
 }

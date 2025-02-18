@@ -3,8 +3,7 @@ package client
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
-	"log"
+	"spotseek/logging"
 	"spotseek/src/slsk/messages"
 	"time"
 )
@@ -18,7 +17,7 @@ func (c *SlskClient) ListenForServerMessages() {
 	for {
 		n, err := c.ServerConnection.Read(readBuffer)
 		if err != nil {
-			log.Printf("Error reading from server connection: %v", err)
+			log.Error("failed to read server message", "err", err)
 			return
 		}
 
@@ -49,28 +48,15 @@ func (c *SlskClient) processServerMessages(data []byte, messageLength *uint32) [
 }
 
 func (c *SlskClient) handleServerMessage(messageData []byte) {
-	mr := messages.NewMessageReader(messageData)
-	serverMsgReader := messages.ServerMessageReader{MessageReader: mr}
+	reader := messages.NewMessageReader(messageData)
+	mr := &messages.ServerMessageReader{MessageReader: reader}
 
-	msg, err := c.HandleServerMessage(&serverMsgReader)
-	if err != nil {
-		log.Printf("Error decoding server message: %v", err)
-	} else {
-		log.Printf("Server message: message: %v", msg)
-	}
-	log.Println("--------------- End of message ----------------")
-}
-
-// the SlskClient type is listening for messages
-// probably simplest to just move this into slskClient package
-// peer package is separate since it creates a Peer type for messages ingress/egress
-// these methods are being directly listened to by the client
-func (c *SlskClient) HandleServerMessage(mr *messages.ServerMessageReader) (map[string]interface{}, error) {
 	var decoded map[string]interface{}
 	var err error
 	code := mr.ReadInt32()
-	log.Println("--------------- Decoding server message ----------------")
-	log.Printf("Server message: code %d", code)
+	log := logging.GetLogger()
+	// log.Println("--------------- Decoding server message ----------------")
+	log.Info("server message code", "code", code)
 	switch code {
 	case 1:
 		decoded, err = c.HandleLogin(mr)
@@ -151,26 +137,26 @@ func (c *SlskClient) HandleServerMessage(mr *messages.ServerMessageReader) (map[
 	case 1001:
 		decoded, err = c.HandleCantConnectToPeer(mr)
 	default:
-		return nil, fmt.Errorf("invalid code. Received code %d", code)
+		log.Error("invalid code", "code", code)
 	}
 	if err != nil {
-		return nil, err
+		log.Error("error processing server msg", "err", err)
 	}
-	return decoded, nil
+	log.Info("server message", "message", decoded)
 }
 
 func (c *SlskClient) HandleLogin(mr *messages.ServerMessageReader) (map[string]interface{}, error) {
 	decoded := make(map[string]interface{})
 	success := mr.ReadBool()
-	log.Println("Login Success:", success)
+	log.Info("Login success status", "success", success)
 	if !success {
 		reason := mr.ReadString()
 		return nil, errors.New(reason)
 	}
 	greetingMessage := mr.ReadString()
 	ip := mr.ReadInt32()
-	log.Println("greeting message:", greetingMessage)
-	log.Println(ip)
+	log.Info("Greeting message", "message", greetingMessage)
+	log.Info("IP from server", "message", ip)
 	return decoded, nil
 }
 
@@ -184,13 +170,13 @@ func (c *SlskClient) HandleGetPeerAddress(mr *messages.ServerMessageReader) (map
 	decoded["ip"] = ip
 	decoded["port"] = port
 	if ip == "0.0.0.0" {
-		log.Println("HandleGetPeerAddress: Can't get IP because user", username, "is offline")
+		log.Error("Can't connect to offline user", "username", username)
 		return decoded, nil
 	}
 	uIP := IP{IP: ip, port: port}
 	connType := c.PeerManager.GetPendingPeer(username)
 	if connType == "" {
-		log.Println("HandleGetPeerAddress: no pending connection for", username)
+		log.Error("No pending connection", "username", username)
 		return decoded, nil
 	}
 
@@ -358,19 +344,28 @@ func (c *SlskClient) HandleConnectToPeer(mr *messages.ServerMessageReader) (map[
 	decoded["port"] = port
 	decoded["token"] = token
 	decoded["privileged"] = privileged
-	log.Printf("HandleConnectToPeer: Attempting connection to %s; type %s", username, cType)
+	log.Info("Attempting to connect to peer",
+		"username", username,
+		"connType", cType,
+	)
 
 	c.PeerManager.AddPendingPeer(username, cType)
 	go func() {
 		// try direct connection first
 		err := c.PeerManager.ConnectToPeer(ip, port, username, cType, token)
 		if err != nil {
-			log.Printf("HandleConnectToPeer: Failed to connect to %s: %v", username, err)
+			log.Error("Failed to connect to peer",
+				"username", username,
+				"err", err,
+			)
 			return
 		}
 		peer := c.PeerManager.GetPeer(username)
 		if peer == nil {
-			log.Printf("HandleConnectToPeer: Failed to connect to %s: %v", username, err)
+			log.Error("Failed to connect to peer",
+				"username", username,
+				"err", err,
+			)
 			return
 		}
 		// try to pierce firewall if sending peer init fails
@@ -381,10 +376,17 @@ func (c *SlskClient) HandleConnectToPeer(mr *messages.ServerMessageReader) (map[
 				c.PeerManager.RemovePendingPeer(username)
 				return
 			}
-			log.Printf("HandleConnectToPeer: Failed to pierce firewall for %s: %v... Attempt %d of 6", username, err, i+1)
+			log.Error("Failed to pierce firewall",
+				"username", username,
+				"err", err,
+				"attempt", i+1,
+			)
 			time.Sleep(10 * time.Second)
 		}
-		log.Printf("HandleConnectToPeer: Failed to connect to %s: %v", username, err)
+		log.Error("Failed to connect to peer",
+			"username", username,
+			"err", err,
+		)
 	}()
 	return decoded, nil
 }

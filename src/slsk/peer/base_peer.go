@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"spotseek/src/slsk/messages"
 	listen "spotseek/src/slsk/network"
@@ -50,7 +49,7 @@ func newPeer(username string, connType string, token uint32, host string, port u
 	if err != nil {
 		return nil, fmt.Errorf("unable to establish connection to peer %s: %v", username, err)
 	} else {
-		log.Printf("established TCP connection to peer %s (%s:%d)\n", username, host, port)
+		log.Info("established TCP connection to peer", "username", username, "peerHost", host, "peerPort", port)
 		return &Peer{
 			Username:       username,
 			PeerConnection: &listen.Connection{Conn: c},
@@ -69,7 +68,7 @@ func (peer *Peer) ListenForMessages() {
 	var messageLength uint32
 
 	defer func() {
-		log.Printf("Stopped listening for messages from peer %s", peer.Username)
+		log.Warn("Stopped listening for messages from peer", "username", peer.Username)
 		peer.ClosePeer()
 		peer.EventEmitter <- PeerEvent{Type: PeerDisconnected, Peer: peer}
 	}()
@@ -78,19 +77,19 @@ func (peer *Peer) ListenForMessages() {
 		n, err := peer.PeerConnection.Read(readBuffer)
 		if err != nil {
 			if err == io.EOF {
-				log.Printf("Peer %s closed the connection", peer.Username)
+				log.Error("Error reading peer message; peer closed the connection", "username", peer.Username)
 				return
 			}
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				log.Printf("Timeout reading from peer %s, retrying...", peer.Username)
+				log.Error("Timeout reading from peer. retrying...", "username", peer.Username)
 				continue
 			}
-			log.Printf("Error reading from peer %s: %v", peer.Username, err)
+			log.Error("Error reading from peer %s: %v", "username", peer.Username, "err", err)
 			return
 		}
 
 		currentMessage = append(currentMessage, readBuffer[:n]...)
-		currentMessage = peer.ProcessMessage(currentMessage, &messageLength)
+		currentMessage = peer.processMessage(currentMessage, &messageLength)
 	}
 }
 
@@ -99,7 +98,7 @@ func (peer *Peer) ClosePeer() {
 
 }
 
-func (peer *Peer) ProcessMessage(data []byte, messageLength *uint32) []byte {
+func (peer *Peer) processMessage(data []byte, messageLength *uint32) []byte {
 	for {
 		if *messageLength == 0 {
 			if len(data) < 4 {
@@ -117,9 +116,9 @@ func (peer *Peer) ProcessMessage(data []byte, messageLength *uint32) []byte {
 		mr := messages.PeerMessageReader{MessageReader: messages.NewMessageReader(message)}
 		msg, err := mr.HandlePeerMessage()
 		if err != nil {
-			log.Printf("Error reading message from peer %s: %v", peer.Username, err)
+			log.Error("Error reading message from peer", "username", peer.Username, "err", err)
 		} else {
-			log.Printf("Message from peer %s: %v", peer.Username, msg)
+			log.Info("Message from peer", "username", peer.Username, "message", msg)
 			// TODO: Search Manager
 			// if msg["type"] == "FileSearchResponse" {
 			// 	peer.EventEmitter <- PeerEvent{Type: FileSearchResponse, Peer: peer}

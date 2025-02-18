@@ -1,7 +1,6 @@
 package client
 
 import (
-	"log"
 	"spotseek/src/slsk/messages"
 	"spotseek/src/slsk/shared"
 )
@@ -13,7 +12,6 @@ func (c *SlskClient) NextConnectionToken() uint32 {
 
 func (c *SlskClient) NextSearchToken() uint32 {
 	c.SearchToken = c.SearchToken + 1
-	log.Println("NextSearchToken:", c.SearchToken)
 	return c.SearchToken
 }
 
@@ -38,7 +36,6 @@ func (c *SlskClient) GetPeerAddress(username string) {
 func (c *SlskClient) FileSearch(query string) {
 	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	t := c.NextSearchToken()
-	log.Printf("Got token: %d", t)
 	c.TokenSearches[t] = query
 	c.SearchResults[t] = make([]shared.SearchResult, 0)
 	msg := mb.FileSearch(t, query)
