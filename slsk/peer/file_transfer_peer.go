@@ -1,7 +1,7 @@
 package peer
 
 import (
-	"spotseek/src/slsk/messages"
+	"spotseek/slsk/messages"
 )
 
 type FileTransferPeer interface {

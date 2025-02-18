@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"spotseek/src/slsk/messages"
+	"spotseek/slsk/messages"
 )
 
 // ListenForIncomingPeers listens for new peer connections

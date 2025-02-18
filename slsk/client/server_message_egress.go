@@ -1,8 +1,8 @@
 package client
 
 import (
-	"spotseek/src/slsk/messages"
-	"spotseek/src/slsk/shared"
+	"spotseek/slsk/messages"
+	"spotseek/slsk/shared"
 )
 
 func (c *SlskClient) NextConnectionToken() uint32 {

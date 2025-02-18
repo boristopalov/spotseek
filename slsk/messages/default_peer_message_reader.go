@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 	"spotseek/logging"
-	"spotseek/src/slsk/shared"
+	"spotseek/slsk/shared"
 )
 
 var log = logging.GetLogger()

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"net"
 	"spotseek/logging"
-	"spotseek/src/slsk/peer"
-	"spotseek/src/slsk/shared"
+	"spotseek/slsk/peer"
+	"spotseek/slsk/shared"
 	"sync"
 )
 

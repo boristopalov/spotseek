@@ -3,10 +3,10 @@ package peer
 import (
 	"fmt"
 	"net"
+	"spotseek/config"
 	"spotseek/logging"
-	"spotseek/src/config"
-	"spotseek/src/slsk/messages"
-	"spotseek/src/slsk/shared"
+	"spotseek/slsk/messages"
+	"spotseek/slsk/shared"
 	"sync"
 	"time"
 )

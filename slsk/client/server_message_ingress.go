@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"spotseek/logging"
-	"spotseek/src/slsk/messages"
+	"spotseek/slsk/messages"
 	"time"
 )
 

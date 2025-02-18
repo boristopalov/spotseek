@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"spotseek/src/slsk/client"
+	"spotseek/slsk/client"
 	"strings"
 
 	"github.com/go-chi/chi/v5"

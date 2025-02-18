@@ -4,8 +4,8 @@ import (
 	"encoding/binary"
 	"io"
 	"net"
-	"spotseek/src/slsk/messages"
-	"spotseek/src/slsk/shared"
+	"spotseek/slsk/messages"
+	"spotseek/slsk/shared"
 )
 
 type Event int
@@ -14,7 +14,6 @@ const (
 	PeerConnected Event = iota
 	PeerDisconnected
 	FileSearchResponse
-	CantConnectToPeer
 )
 
 type BasePeer interface {
@@ -57,14 +56,14 @@ func (peer *Peer) ListenForMessages() {
 		n, err := peer.PeerConnection.Read(readBuffer)
 		if err != nil {
 			if err == io.EOF {
-				log.Error("Error reading peer message; peer closed the connection", "username", peer.Username)
+				log.Error("Error reading peer message. Peer closed the connection", "peer", peer)
 				return
 			}
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				log.Error("Timeout reading from peer. retrying...", "username", peer.Username)
+				log.Error("Timeout reading from peer. retrying...", "", peer)
 				continue
 			}
-			log.Error("Error reading from peer %s: %v", "username", peer.Username, "err", err)
+			log.Error("Error reading peer message", "peer", peer, "err", err)
 			return
 		}
 
