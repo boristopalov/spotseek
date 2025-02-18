@@ -26,7 +26,6 @@ const SlskClientKey ContextKey = "slskClient"
 
 type CLI struct {
 	output io.Writer
-	client *client.SlskClient
 }
 
 func (c *CLI) Run(args []string) error {
@@ -38,6 +37,12 @@ func (c *CLI) Run(args []string) error {
 		return fmt.Errorf("no command provided")
 	}
 
+	slskClient := client.NewSlskClient("server.slsknet.org", 2242)
+	err := slskClient.Connect(config.SOULSEEK_USERNAME, config.SOULSEEK_PASSWORD)
+	if err != nil {
+		logging.LogFatal(log, "Failed to connect to soulseek", "err", err)
+	}
+
 	command := args[0]
 	switch command {
 	case "search":
@@ -45,7 +50,7 @@ func (c *CLI) Run(args []string) error {
 			return fmt.Errorf("search requires a query")
 		}
 		query := args[1]
-		c.client.FileSearch(query)
+		slskClient.FileSearch(query)
 		fmt.Fprintf(c.output, "Searching for: %s\n", query)
 
 	case "download":
@@ -55,7 +60,7 @@ func (c *CLI) Run(args []string) error {
 		username := args[1]
 		filename := args[2]
 
-		peer := c.client.PeerManager.GetPeer(username)
+		peer := slskClient.PeerManager.GetPeer(username)
 		if peer == nil {
 			return fmt.Errorf("not connected to peer %s", username)
 		}
@@ -67,7 +72,7 @@ func (c *CLI) Run(args []string) error {
 		fmt.Fprintf(c.output, "Download queued for %s from %s\n", filename, username)
 
 	case "serve":
-		return startServer(c.client)
+		return startServer(slskClient)
 
 	default:
 		return fmt.Errorf("unknown command: %s", command)
@@ -99,15 +104,8 @@ func startServer(slskClient *client.SlskClient) error {
 }
 
 func main() {
-	slskClient := client.NewSlskClient("server.slsknet.org", 2242)
-	err := slskClient.Connect(config.SOULSEEK_USERNAME, config.SOULSEEK_PASSWORD)
-	if err != nil {
-		logging.LogFatal(log, "Failed to connect to soulseek", "err", err)
-	}
-
 	cli := &CLI{
 		output: os.Stdout,
-		client: slskClient,
 	}
 
 	if err := cli.Run(os.Args[1:]); err != nil {
