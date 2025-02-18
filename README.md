@@ -1,6 +1,6 @@
 # spotseek
 
-Golang client for the Soulseek protocol
+Golang client for the Soulseek protocol. WIP
 
 
 ## Docs
