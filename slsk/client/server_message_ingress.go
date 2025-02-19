@@ -428,14 +428,18 @@ func (c *SlskClient) HandleConnectToPeer(mr *messages.ServerMessageReader) (map[
 
 func (c *SlskClient) HandleMessageUser(mr *messages.ServerMessageReader) (map[string]interface{}, error) {
 	decoded := make(map[string]interface{})
+	id := mr.ReadInt32()
 	decoded["type"] = "messageUser"
-	decoded["id"] = mr.ReadInt32()
+	decoded["id"] = id
 	decoded["timestamp"] = time.Unix(int64(mr.ReadInt32()), 0)
 	decoded["username"] = mr.ReadString()
 	decoded["message"] = mr.ReadString()
+
+	c.AckMessage(id)
 	return decoded, nil
 }
 
+// this is sent to us if a user is specifically searching our files
 func (c *SlskClient) HandleFileSearch(mr *messages.ServerMessageReader) (map[string]interface{}, error) {
 	decoded := make(map[string]interface{})
 	decoded["type"] = "fileSearch"

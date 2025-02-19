@@ -43,7 +43,7 @@ func (c *CLI) Run(args []string) error {
 		logging.LogFatal(log, "Failed to connect to soulseek", "err", err)
 	}
 
-	slskClient.JoinRoom("nicotine")
+	// slskClient.JoinRoom("nicotine")
 
 	command := args[0]
 	switch command {

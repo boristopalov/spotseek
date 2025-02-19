@@ -27,6 +27,7 @@ func (c *SlskClient) SetWaitPort(port uint32) {
 	c.ServerConnection.SendMessage(msg)
 }
 
+// see HandleGetPeerAddress() for how we attempt direct connection requests
 func (c *SlskClient) GetPeerAddress(username string) {
 	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	msg := mb.GetPeerAddress(username)
@@ -85,5 +86,11 @@ func (c *SlskClient) UserSearch(username string, query string) {
 func (c *SlskClient) JoinRoom(room string) {
 	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	msg := mb.JoinRoom(room)
+	c.ServerConnection.SendMessage(msg)
+}
+
+func (c *SlskClient) AckMessage(id uint32) {
+	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
+	msg := mb.MessageAcked(id)
 	c.ServerConnection.SendMessage(msg)
 }
