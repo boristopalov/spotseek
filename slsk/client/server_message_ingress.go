@@ -24,31 +24,31 @@ func (c *SlskClient) ListenForServerMessages() {
 		}
 
 		currentMessage = append(currentMessage, readBuffer[:n]...)
-		currentMessage = c.processServerMessages(currentMessage, &messageLength)
+		currentMessage, messageLength = c.processServerMessages(currentMessage, messageLength)
 	}
 }
 
-func (c *SlskClient) processServerMessages(data []byte, messageLength *uint32) []byte {
+func (c *SlskClient) processServerMessages(data []byte, messageLength uint32) ([]byte, uint32) {
 	if len(data) == 0 {
-		return data
+		return data, messageLength
 	}
 	for {
-		if *messageLength == 0 {
+		if messageLength == 0 {
 			if len(data) < 4 {
-				return data // Not enough data to read message length
+				return data, messageLength // Not enough data to read message length
 			}
-			*messageLength = binary.LittleEndian.Uint32(data[:4])
+			messageLength = binary.LittleEndian.Uint32(data[:4])
 			data = data[4:]
 		}
 
-		if uint32(len(data)) < *messageLength {
-			return data // Not enough data for full message
+		if uint32(len(data)) < messageLength {
+			return data, messageLength // Not enough data for full message
 		}
 
-		c.handleServerMessage(data[:*messageLength])
+		c.handleServerMessage(data[:messageLength])
 
-		data = data[*messageLength:]
-		*messageLength = 0
+		data = data[messageLength:]
+		messageLength = 0
 	}
 }
 
