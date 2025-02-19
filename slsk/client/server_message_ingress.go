@@ -157,7 +157,7 @@ func (c *SlskClient) handleServerMessage(messageData []byte) {
 	if err != nil {
 		log.Error("error processing server msg", "err", err)
 	}
-	log.Info("message from server", "code", code, "message", decoded)
+	log.Info("received message from server", "code", code, "message", decoded)
 }
 
 func (c *SlskClient) HandleLogin(mr *messages.ServerMessageReader) (map[string]interface{}, error) {
@@ -239,49 +239,53 @@ func (c *SlskClient) HandleSayChatroom(mr *messages.ServerMessageReader) (map[st
 func (c *SlskClient) HandleJoinRoom(mr *messages.ServerMessageReader) (map[string]interface{}, error) {
 	decoded := make(map[string]interface{})
 	decoded["type"] = "joinRoom"
-	room := mr.ReadString()
-	decoded["room"] = room
+	name := mr.ReadString()
+	decoded["room"] = name
 	numUsers := mr.ReadInt32()
-	usernames := make([]string, numUsers)
-	// var users []map[string]interface{}
-	for i := uint32(0); i < numUsers; i++ {
-		user := make(map[string]interface{})
-		username := mr.ReadString()
-		user["username"] = username
-		// users = append(users, user)
-		usernames[i] = username
+	room := &Room{
+		users:    make([]*User, numUsers),
+		messages: make([]string, 0),
 	}
-	c.JoinedRooms[room] = usernames
 
-	// _ = mr.ReadInt32() // number of statuses
+	for i := uint32(0); i < numUsers; i++ {
+		user := NewUser()
+		username := mr.ReadString()
+		user.username = username
+		room.users[i] = user
+	}
 
-	// for i := uint32(0); i < numUsers; i++ {
-	// 	status := mr.ReadInt32()
-	// 	users[i]["status"] = status
-	// }
+	_ = mr.ReadInt32() // number of statuses
 
-	// _ = mr.ReadInt32() // number of user stats
+	for i := uint32(0); i < numUsers; i++ {
+		status := mr.ReadInt32()
+		room.users[i].status = status
+	}
 
-	// for i := uint32(0); i < numUsers; i++ {
-	// 	users[i]["avgspeed"] = mr.ReadInt32()
-	// 	users[i]["uploadnum"] = mr.ReadInt32()
-	// 	users[i]["unknown"] = mr.ReadInt32()
-	// 	users[i]["files"] = mr.ReadInt32()
-	// 	users[i]["folders"] = mr.ReadInt32()
-	// }
+	_ = mr.ReadInt32() // number of user stats
 
-	// _ = mr.ReadInt32() // number of slotsfree
+	for i := uint32(0); i < numUsers; i++ {
+		room.users[i].avgSpeed = mr.ReadInt32()
+		room.users[i].uploadNum = mr.ReadInt32()
+		mr.ReadInt32() // unknown
+		room.users[i].files = mr.ReadInt32()
+		room.users[i].dirs = mr.ReadInt32()
+	}
 
-	// for i := uint32(0); i < numUsers; i++ {
-	// 	users[i]["slotsFree"] = mr.ReadInt32()
-	// }
+	_ = mr.ReadInt32() // number of slotsfree
 
-	// _ = mr.ReadInt32() // number of user countries
+	for i := uint32(0); i < numUsers; i++ {
+		room.users[i].slotsFree = mr.ReadInt32()
+	}
 
-	// for i := uint32(0); i < numUsers; i++ {
-	// 	users[i]["country"] = mr.ReadString()
-	// }
+	_ = mr.ReadInt32() // number of user countries
 
+	for i := uint32(0); i < numUsers; i++ {
+		room.users[i].country = mr.ReadString()
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.JoinedRooms[name] = room
 	return decoded, nil
 }
 
@@ -323,24 +327,77 @@ func (c *SlskClient) HandleLeaveRoom(mr *messages.ServerMessageReader) (map[stri
 func (c *SlskClient) HandleUserJoinedRoom(mr *messages.ServerMessageReader) (map[string]interface{}, error) {
 	decoded := make(map[string]interface{})
 	decoded["type"] = "userJoinedRoom"
-	decoded["room"] = mr.ReadString()
-	decoded["username"] = mr.ReadString()
-	decoded["status"] = mr.ReadInt32()
-	decoded["avgSpeed"] = mr.ReadInt32()
-	decoded["uploadNum"] = mr.ReadInt32()
-	decoded["unknown"] = mr.ReadInt32()
-	decoded["files"] = mr.ReadInt32()
-	decoded["folders"] = mr.ReadInt32()
-	decoded["slotsFree"] = mr.ReadInt32()
-	decoded["country"] = mr.ReadString()
+
+	roomName := mr.ReadString()
+	username := mr.ReadString()
+	status := mr.ReadInt32()
+	avgSpeed := mr.ReadInt32()
+	uploadNum := mr.ReadInt32()
+	unknown := mr.ReadInt32()
+	files := mr.ReadInt32()
+	folders := mr.ReadInt32()
+	slotsFree := mr.ReadInt32()
+	country := mr.ReadString()
+
+	decoded["room"] = roomName
+	decoded["username"] = username
+	decoded["status"] = status
+	decoded["avgSpeed"] = avgSpeed
+	decoded["uploadNum"] = uploadNum
+	decoded["unknown"] = unknown
+	decoded["files"] = files
+	decoded["folders"] = folders
+	decoded["slotsFree"] = slotsFree
+	decoded["country"] = country
+
+	room, ok := c.JoinedRooms[roomName]
+	if !ok {
+		return decoded, fmt.Errorf("Room not in JoinedRooms map")
+	}
+
+	newUser := &User{
+		username:   username,
+		status:     uint32(status),
+		privileged: false,
+		avgSpeed:   uint32(avgSpeed),
+		uploadNum:  uint32(uploadNum),
+		files:      uint32(files),
+		dirs:       uint32(folders),
+		slotsFree:  uint32(slotsFree),
+		country:    country,
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	room.users = append(room.users, newUser)
 	return decoded, nil
 }
 
 func (c *SlskClient) HandleUserLeftRoom(mr *messages.ServerMessageReader) (map[string]interface{}, error) {
 	decoded := make(map[string]interface{})
+	roomName := mr.ReadString()
+	username := mr.ReadString()
 	decoded["type"] = "userLeftRoom"
-	decoded["room"] = mr.ReadString()
-	decoded["username"] = mr.ReadString()
+	decoded["room"] = roomName
+	decoded["username"] = username
+	_, ok := c.JoinedRooms[roomName]
+	if !ok {
+		return decoded, fmt.Errorf("Room not in JoinedRooms map")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	users := c.JoinedRooms[roomName].users
+
+	// delete the user
+	j := 0
+	for i, v := range users {
+		if v.username != username {
+			users[j] = users[i]
+			j++
+		}
+	}
+	users = users[:j]
+	c.JoinedRooms[roomName].users = users
 	return decoded, nil
 }
 

@@ -7,7 +7,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
-	"spotseek/src/config"
+	"spotseek/config"
 	"strings"
 	"time"
 

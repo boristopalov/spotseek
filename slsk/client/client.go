@@ -24,6 +24,37 @@ type PendingTokenConn struct {
 	token      uint32
 }
 
+type User struct {
+	username   string
+	status     uint32
+	privileged bool
+	avgSpeed   uint32
+	uploadNum  uint32
+	files      uint32
+	dirs       uint32
+	slotsFree  uint32
+	country    string
+}
+
+func NewUser() *User {
+	return &User{
+		username:   "",
+		status:     0,     // Default status
+		privileged: false, // Default non-privileged
+		avgSpeed:   0,     // Default speed
+		uploadNum:  0,     // Default upload count
+		files:      0,     // Default files count
+		dirs:       0,     // Default directories count
+		slotsFree:  0,     // Default slots free
+		country:    "",    // Default country code
+	}
+}
+
+type Room struct {
+	users    []*User
+	messages []string
+}
+
 type SlskClient struct {
 	Host                                string
 	Port                                int
@@ -41,11 +72,8 @@ type SlskClient struct {
 	DownloadQueue                       map[string]*Transfer
 	UploadQueue                         map[string]*Transfer
 	TransferListeners                   []TransferListener
-	JoinedRooms                         map[string][]string // room name --> users in room
-	// DistributedNetworkManager *network.DistributedNetworkManager
-	PeerManager *peer.PeerManager
-	// FileTransferManager       *network.FileTransferManager
-	// RoomManager               *rooms.RoomManager
+	JoinedRooms                         map[string]*Room // room name --> users in room
+	PeerManager                         *peer.PeerManager
 }
 
 type Transfer struct {
@@ -71,14 +99,8 @@ func NewSlskClient(host string, port int) *SlskClient {
 		TokenSearches:                       make(map[uint32]string),
 		PendingOutgoingPeerConnections:      make(map[string]PendingTokenConn),
 		PendingOutgoingPeerConnectionTokens: make(map[uint32]PendingTokenConn),
-		// PendingUsernameConnTypes: make(map[string]string),
-		// UsernameIps: make(map[string]IP),
-		// JoinedRooms:              make(map[string][]string),
-		// DistributedNetwork:       network.NewDistributedNetwork(),
-		PeerManager: peer.NewPeerManager(make(chan peer.PeerEvent)),
-		// TransferManager: transfers.NewTransferManager(),
-		// SearchManager:   search.NewSearchManager(),
-		// RoomManager: rooms.NewRoomManager()
+		JoinedRooms:                         make(map[string]*Room),
+		PeerManager:                         peer.NewPeerManager(make(chan peer.PeerEvent)),
 	}
 }
 
