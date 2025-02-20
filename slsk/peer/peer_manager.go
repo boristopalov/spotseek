@@ -3,7 +3,6 @@ package peer
 import (
 	"fmt"
 	"net"
-	"spotseek/config"
 	"spotseek/logging"
 	"spotseek/slsk/messages"
 	"spotseek/slsk/shared"
@@ -13,8 +12,15 @@ import (
 
 var log = logging.GetLogger()
 
+type peerKey = string
+
+// Helper function to create peer key
+func makePeerKey(username, connType string) peerKey {
+	return username + "|" + connType
+}
+
 type PeerManager struct {
-	peers         map[string]*Peer // username --> Peer info
+	peers         map[peerKey]*Peer // username|connType --> Peer info
 	mu            sync.RWMutex
 	eventEmitter  chan<- PeerEvent
 	eventListener <-chan PeerEvent
@@ -22,7 +28,7 @@ type PeerManager struct {
 
 func NewPeerManager(eventChan chan PeerEvent) *PeerManager {
 	m := &PeerManager{
-		peers:         make(map[string]*Peer),
+		peers:         make(map[peerKey]*Peer),
 		eventEmitter:  eventChan,
 		eventListener: eventChan,
 	}
@@ -33,64 +39,68 @@ func NewPeerManager(eventChan chan PeerEvent) *PeerManager {
 func (manager *PeerManager) RemovePeer(peer *Peer) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
-	delete(manager.peers, peer.Username)
+	key := makePeerKey(peer.Username, peer.ConnType)
+	delete(manager.peers, key)
 }
 
 // for outgoing connection attempts
-func (manager *PeerManager) ConnectToPeer(ip string, port uint32, username, connType string, token uint32) error {
-	peer := manager.GetPeer(username)
-	if peer != nil && connType == peer.ConnType {
-		log.Warn("already connected to peer",
-			"peer", username,
-			"connType", connType,
-		)
-		return nil
+func (manager *PeerManager) ConnectToPeer(host string, port uint32, username string, connType string, token uint32, privileged uint8) error {
+	peer := manager.AddPeer(username, connType, host, port, token, privileged)
+	if peer == nil {
+		return fmt.Errorf("cannot connect to user %s with connType %s", username, connType)
 	}
 
-	err := peer.PeerInit(config.SOULSEEK_USERNAME, connType, token)
+	err := peer.PierceFirewall(peer.Token)
 	if err != nil {
 		return err
 	}
 
-	manager.AddPeer(peer.Username, peer.ConnType, peer.Host, peer.Port, peer.Token, peer.Privileged)
-	go peer.ListenForMessages()
+	switch connType {
+	case "P":
+		go peer.ListenForPeerMessages()
+	case "D":
+		go peer.ListenForDistributedMessages()
+	case "F":
+		go peer.ListenForFileTransferMessages()
+	}
 	return nil
 }
 
-func (manager *PeerManager) GetPeer(username string) *Peer {
+func (manager *PeerManager) GetPeer(username string, connType string) *Peer {
 	manager.mu.RLock()
 	defer manager.mu.RUnlock()
-	peer, ok := manager.peers[username]
-	if !ok {
-		return nil
+	key := makePeerKey(username, connType)
+	peer, exists := manager.peers[key]
+	if exists {
+		return peer
 	}
-	return peer
+	return nil
 }
 
 func (manager *PeerManager) AddPeer(username string, connType string, ip string, port uint32, token uint32, privileged uint8) *Peer {
-	peer := manager.GetPeer(username)
-	if peer != nil && peer.ConnType == connType {
+	key := makePeerKey(username, connType)
+	manager.mu.RLock()
+	peer, exists := manager.peers[key]
+	manager.mu.RUnlock()
+
+	if exists {
 		log.Warn("peer already connected", "peer", peer)
 		return nil
 	}
-	peer, err := NewPeer(username, connType, token, ip, port, privileged, manager.eventEmitter)
+
+	peer, err := newPeer(username, connType, token, ip, port, privileged, manager.eventEmitter)
 	if err != nil {
 		return nil
 	}
+
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
-	manager.peers[username] = peer
+	manager.peers[key] = peer
 	log.Info("connected to peer", "peer", peer)
 	return peer
 }
 
-func (manager *PeerManager) GetNumConnections() int {
-	manager.mu.RLock()
-	defer manager.mu.RUnlock()
-	return len(manager.peers)
-}
-
-func NewPeer(username string, connType string, token uint32, host string, port uint32, privileged uint8, eventEmitter chan<- PeerEvent) (*Peer, error) {
+func newPeer(username string, connType string, token uint32, host string, port uint32, privileged uint8, eventEmitter chan<- PeerEvent) (*Peer, error) {
 	c, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host, port), 10*time.Second)
 	if err != nil {
 		log.Error("failed to connect to peer",
@@ -117,26 +127,9 @@ func NewPeer(username string, connType string, token uint32, host string, port u
 	}
 }
 
-func (mgr *PeerManager) HandleNewPeer(username string, connType string, ip string, port uint32, token uint32, privileged uint8) error {
-	peer := mgr.AddPeer(username, connType, ip, port, token, privileged)
-	if peer == nil {
-		return fmt.Errorf("Failed to connect to peer")
-	}
-	err := peer.PierceFirewall(peer.Token)
-	if err != nil {
-		log.Error("Failed to send PierceFirewall",
-			"peer", peer,
-			"err", err,
-		)
-		return err
-	}
-	go peer.ListenForMessages()
-	return nil
-}
-
 func (peer *Peer) PeerInit(username string, connType string, token uint32) error {
 
-	mb := messages.PeerMessageBuilder{
+	mb := messages.PeerInitMessageBuilder{
 		MessageBuilder: messages.NewMessageBuilder(),
 	}
 	msg := mb.PeerInit(username, connType, token)
@@ -145,7 +138,7 @@ func (peer *Peer) PeerInit(username string, connType string, token uint32) error
 }
 
 func (peer *Peer) PierceFirewall(token uint32) error {
-	mb := messages.PeerMessageBuilder{
+	mb := messages.PeerInitMessageBuilder{
 		MessageBuilder: messages.NewMessageBuilder(),
 	}
 	msg := mb.PierceFirewall(token)

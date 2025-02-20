@@ -4,10 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"spotseek/config"
 	"spotseek/logging"
+	"spotseek/slsk/fileshare"
 	"spotseek/slsk/peer"
 	"spotseek/slsk/shared"
 	"sync"
+	"time"
 )
 
 var log = logging.GetLogger()
@@ -61,7 +64,6 @@ type SlskClient struct {
 	ServerConnection                    *shared.Connection
 	Listener                            net.Listener
 	mu                                  sync.RWMutex
-	fileMutex                           sync.RWMutex
 	User                                string                      // the user that is logged in
 	PendingOutgoingPeerConnections      map[string]PendingTokenConn // username --> connection info
 	PendingOutgoingPeerConnectionTokens map[uint32]PendingTokenConn // token --> connection info
@@ -69,32 +71,17 @@ type SlskClient struct {
 	ConnectionToken                     uint32
 	SearchToken                         uint32
 	SearchResults                       map[uint32][]shared.SearchResult // token --> search results
-	DownloadQueue                       map[string]*Transfer
-	UploadQueue                         map[string]*Transfer
-	TransferListeners                   []TransferListener
-	JoinedRooms                         map[string]*Room // room name --> users in room
+	JoinedRooms                         map[string]*Room                 // room name --> users in room
 	PeerManager                         *peer.PeerManager
+	FileManager                         *fileshare.FileShareManager
 }
-
-type Transfer struct {
-	Username string
-	Filename string
-	Size     int64
-	Progress int64
-	Status   string
-}
-
-type TransferListener func(transfer *Transfer)
 
 func NewSlskClient(host string, port int) *SlskClient {
 	return &SlskClient{
 		Host:                                host,
 		Port:                                port,
-		ConnectionToken:                     0,
-		SearchToken:                         0,
-		DownloadQueue:                       make(map[string]*Transfer),
-		UploadQueue:                         make(map[string]*Transfer),
-		TransferListeners:                   make([]TransferListener, 0),
+		ConnectionToken:                     42,
+		SearchToken:                         42,
 		SearchResults:                       make(map[uint32][]shared.SearchResult),
 		TokenSearches:                       make(map[uint32]string),
 		PendingOutgoingPeerConnections:      make(map[string]PendingTokenConn),
@@ -106,7 +93,15 @@ func NewSlskClient(host string, port int) *SlskClient {
 
 // Connect to soulseek server and login
 func (c *SlskClient) Connect(username, pw string) error {
-	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", c.Host, c.Port))
+	// Set up our shared files
+	shares := fileshare.NewShared(config.GetSettings())
+	stats := shares.GetShareStats()
+	log.Info("share stats", "stats", stats)
+
+	dialer := &net.Dialer{
+		KeepAlive: 120 * time.Second,
+	}
+	conn, err := dialer.Dial("tcp", fmt.Sprintf("%s:%d", c.Host, c.Port))
 	if err != nil {
 		return errors.New("unable to dial tcp connection; " + err.Error())
 	}
@@ -118,11 +113,26 @@ func (c *SlskClient) Connect(username, pw string) error {
 	c.Listener = listener
 	go c.ListenForServerMessages()
 	go c.ListenForIncomingPeers()
+
 	c.Login(username, pw)
 	c.SetWaitPort(2234)
 	log.Info("Established connection to Soulseek server")
 	log.Info("Listening on port 2234")
 	c.User = username
+
+	c.SharedFoldersFiles(stats.TotalFolders, stats.TotalFiles)
+
+	// set up fileshare manager
+	c.FileManager = fileshare.NewFileShareManager(shares)
+
+	go func() {
+		c.HaveNoParent(1)
+		time.Sleep(5 * time.Second)
+		c.FileSearch("norbak clima")
+	}()
+
+	// c.JoinRoom("nicotine")
+	// c.JoinRoom("The Lobby")
 	return nil
 }
 

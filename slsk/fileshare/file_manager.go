@@ -1,7 +1,27 @@
-package client
+package fileshare
+
+type Transfer struct {
+	Username string
+	Filename string
+	Size     int64
+	Progress int64
+	Status   string
+}
+
+type FileShareManager struct {
+	shared     *Shared
+	transferCh <-chan *Transfer
+}
+
+func NewFileShareManager(shared *Shared) *FileShareManager {
+	return &FileShareManager{
+		shared:     shared,
+		transferCh: make(<-chan *Transfer),
+	}
+}
 
 // FILE TRANSFER HANDLING
-// func (c *SlskClient) QueueDownload(username, filename string, size int64) error {
+// func (mgr *FileShareManager) QueueDownload(username, filename string, size int64) error {
 // 	key := username + "|" + filename
 // 	if _, exists := c.DownloadQueue[key]; exists {
 // 		return errors.New("download already queued")
@@ -25,7 +45,7 @@ package client
 // 	return peer.QueueUpload(filename)
 // }
 
-// func (c *SlskClient) UpdateTransferProgress(username, filename string, progress int64, isUpload bool) {
+// func (c *FileShareManager) UpdateTransferProgress(username, filename string, progress int64, isUpload bool) {
 // 	key := username + "|" + filename
 // 	var transfer *Transfer
 
@@ -48,10 +68,6 @@ package client
 // 			listener(transfer)
 // 		}
 // 	}
-// }
-
-// func (c *SlskClient) AddTransferListener(listener TransferListener) {
-// 	c.TransferListeners = append(c.TransferListeners, listener)
 // }
 
 // func (c *SlskClient) DownloadPeerFile(token uint32, peer *peer.Peer) error {

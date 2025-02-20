@@ -71,9 +71,10 @@ func ConnectToPeer(w http.ResponseWriter, r *http.Request) {
 
 func Download(w http.ResponseWriter, r *http.Request) {
 	username := r.URL.Query().Get("username")
+	connType := r.URL.Query().Get("connType")
 	filename := r.URL.Query().Get("filename")
-	if username == "" || filename == "" {
-		http.Error(w, "Missing username or filename parameter", http.StatusBadRequest)
+	if username == "" || connType == "" || filename == "" {
+		http.Error(w, "Missing username, connType, or filename parameter", http.StatusBadRequest)
 		return
 	}
 
@@ -83,7 +84,7 @@ func Download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	peer := c.PeerManager.GetPeer(username)
+	peer := c.PeerManager.GetPeer(username, connType)
 	if peer == nil {
 		http.Error(w, "Not connected to the specified peer", http.StatusBadRequest)
 		return

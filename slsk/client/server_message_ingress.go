@@ -180,12 +180,12 @@ func (c *SlskClient) HandleLogin(mr *messages.ServerMessageReader) (map[string]i
 func (c *SlskClient) HandleGetPeerAddress(mr *messages.ServerMessageReader) (map[string]interface{}, error) {
 	decoded := make(map[string]interface{})
 	username := mr.ReadString()
-	ip := mr.ReadIp()
+	host := mr.ReadIp()
 	port := mr.ReadInt32()
 	decoded["username"] = username
-	decoded["ip"] = ip
+	decoded["ip"] = host
 	decoded["port"] = port
-	if ip == "0.0.0.0" {
+	if host == "0.0.0.0" {
 		return decoded, fmt.Errorf("User is offline")
 	}
 	peerInfo, found := c.PendingOutgoingPeerConnections[username]
@@ -193,7 +193,7 @@ func (c *SlskClient) HandleGetPeerAddress(mr *messages.ServerMessageReader) (map
 		return decoded, fmt.Errorf("Np pending outgoing peer connection for user %s", username)
 	}
 	go func() {
-		c.PeerManager.ConnectToPeer(ip, port, username, peerInfo.connType, peerInfo.token)
+		c.PeerManager.ConnectToPeer(host, port, username, peerInfo.connType, peerInfo.token, peerInfo.privileged)
 		c.RemovePendingPeer(username)
 		delete(c.PendingOutgoingPeerConnectionTokens, peerInfo.token)
 	}()
@@ -418,7 +418,7 @@ func (c *SlskClient) HandleConnectToPeer(mr *messages.ServerMessageReader) (map[
 	decoded["privileged"] = privileged
 
 	go func() {
-		err := c.PeerManager.HandleNewPeer(username, connType, ip, port, token, privileged)
+		err := c.PeerManager.ConnectToPeer(ip, port, username, connType, token, privileged)
 		if err != nil {
 			c.CantConnectToPeer(token, username)
 		}
@@ -519,20 +519,40 @@ func (c *SlskClient) HandleSearchRequest(mr *messages.ServerMessageReader) (map[
 	return decoded, nil
 }
 
+// parents are all users with higher upload speed than us
+// max 10 parents at a time (why is it 4byte int?)
 func (c *SlskClient) HandlePossibleParents(mr *messages.ServerMessageReader) (map[string]interface{}, error) {
 	decoded := make(map[string]interface{})
 	var parents []map[string]interface{}
-	decoded["type"] = "netInfo"
+	decoded["type"] = "possibleParents"
 
 	parentCount := mr.ReadInt32()
 	for i := uint32(0); i < parentCount; i++ {
 		parent := make(map[string]interface{})
-		parent["username"] = mr.ReadString()
-		parent["ip"] = mr.ReadIp()
-		parent["port"] = mr.ReadInt32()
+		username := mr.ReadString()
+		host := mr.ReadIp()
+		port := mr.ReadInt32()
+		parent["username"] = username
+		parent["ip"] = host
+		parent["port"] = port
 		parents = append(parents, parent)
 	}
 	decoded["parents"] = parents
+	go func() {
+		// Loop through parents and attempt connection
+		for _, parent := range parents {
+			username := parent["username"].(string)
+			host := parent["ip"].(string)
+			port := parent["port"].(uint32)
+			err := c.PeerManager.ConnectToPeer(host, port, username, "D", 0, 0)
+			if err == nil {
+				// tell the server that we found a parent
+				c.HaveNoParent(0)
+				c.BranchRoot(username)
+				return
+			}
+		}
+	}()
 	return decoded, nil
 }
 

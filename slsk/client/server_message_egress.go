@@ -34,9 +34,12 @@ func (c *SlskClient) GetPeerAddress(username string) {
 	c.ServerConnection.SendMessage(msg)
 }
 
+// Server forwards our query to the distributed network
 func (c *SlskClient) FileSearch(query string) {
 	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	t := c.NextSearchToken()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.TokenSearches[t] = query
 	c.SearchResults[t] = make([]shared.SearchResult, 0)
 	msg := mb.FileSearch(t, query)
@@ -44,7 +47,7 @@ func (c *SlskClient) FileSearch(query string) {
 }
 
 func (c *SlskClient) ConnectToPeer(username string, connType string) {
-	if peer := c.PeerManager.GetPeer(username); peer != nil {
+	if peer := c.PeerManager.GetPeer(username, connType); peer != nil {
 		return
 	}
 	token := c.NextConnectionToken()
@@ -92,5 +95,31 @@ func (c *SlskClient) JoinRoom(room string) {
 func (c *SlskClient) AckMessage(id uint32) {
 	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	msg := mb.MessageAcked(id)
+	c.ServerConnection.SendMessage(msg)
+}
+
+func (c *SlskClient) SharedFoldersFiles(folderCount, fileCount uint32) {
+	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
+	msg := mb.SharedFoldersFiles(folderCount, fileCount)
+	c.ServerConnection.SendMessage(msg)
+}
+
+// if haveNoParent == 1, the server eventually sends us PossibleParents msg
+// if no possible parents are found, we eventually become a branch root
+func (c *SlskClient) HaveNoParent(haveNoParent uint8) {
+	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
+	msg := mb.HaveNoParent(haveNoParent)
+	c.ServerConnection.SendMessage(msg)
+}
+
+func (c *SlskClient) BranchLevel(branchLevel uint32) {
+	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
+	msg := mb.BranchLevel(branchLevel)
+	c.ServerConnection.SendMessage(msg)
+}
+
+func (c *SlskClient) BranchRoot(branchRoot string) {
+	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
+	msg := mb.BranchRoot(branchRoot)
 	c.ServerConnection.SendMessage(msg)
 }

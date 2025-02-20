@@ -102,7 +102,7 @@ func (mb *ServerMessageBuilder) PrivilegedUsers() []byte {
 	return mb.Build(69)
 }
 
-func (mb *ServerMessageBuilder) HaveNoParent(haveParent int8) []byte {
+func (mb *ServerMessageBuilder) HaveNoParent(haveParent uint8) []byte {
 	mb.AddInt8(haveParent)
 	return mb.Build(71)
 }
@@ -111,7 +111,7 @@ func (mb *ServerMessageBuilder) CheckPrivileges() []byte {
 	return mb.Build(92)
 }
 
-func (mb *ServerMessageBuilder) AcceptChildren(accept int8) []byte {
+func (mb *ServerMessageBuilder) AcceptChildren(accept uint8) []byte {
 	mb.AddInt8(accept)
 	return mb.Build(100)
 }
@@ -138,7 +138,7 @@ func (mb *ServerMessageBuilder) PrivateRoomDisown(room string) []byte {
 	return mb.Build(137)
 }
 
-func (mb *ServerMessageBuilder) PrivateRoomToggle(enable int8) []byte {
+func (mb *ServerMessageBuilder) PrivateRoomToggle(enable uint8) []byte {
 	mb.AddInt8(enable)
 	return mb.Build(141)
 }
@@ -173,4 +173,14 @@ func (mb *ServerMessageBuilder) UserSearch(username string, token uint32, query 
 	mb.AddInt32(token)
 	mb.AddString(query)
 	return mb.Build(42)
+}
+
+func (mb *ServerMessageBuilder) BranchLevel(branchLevel uint32) []byte {
+	mb.AddInt32(branchLevel)
+	return mb.Build(126)
+}
+
+func (mb *ServerMessageBuilder) BranchRoot(branchRoot string) []byte {
+	mb.AddString(branchRoot)
+	return mb.Build(126)
 }

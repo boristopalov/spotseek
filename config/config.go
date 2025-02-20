@@ -2,7 +2,6 @@ package config
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 	"path"
@@ -14,14 +13,15 @@ import (
 )
 
 var (
-	CLIENT_ID         string
-	CLIENT_SECRET     string
-	REDIRECT_URI      string
-	REDIS_URI         string
-	REDIS_PASSWORD    string
-	REDIS_DB          int
-	SOULSEEK_USERNAME string
-	SOULSEEK_PASSWORD string
+	CLIENT_ID          string
+	CLIENT_SECRET      string
+	REDIRECT_URI       string
+	REDIS_URI          string
+	REDIS_PASSWORD     string
+	REDIS_DB           int
+	SOULSEEK_USERNAME  string
+	SOULSEEK_PASSWORD  string
+	DEFAULT_SHARE_PATH string
 )
 
 type Settings struct {
@@ -55,6 +55,7 @@ func init() {
 	REDIRECT_URI = os.Getenv("REDIRECT_URI")
 	REDIS_URI = os.Getenv("REDIS_URI")
 	REDIS_PASSWORD = os.Getenv("REDIS_PASSWORD")
+	DEFAULT_SHARE_PATH = os.Getenv("DEFAULT_SHARE_PATH")
 	redisDbInt, err := strconv.Atoi(os.Getenv("REDIS_DB"))
 	if err != nil {
 		log.Fatal("cannot read Redis connection params")
@@ -74,69 +75,13 @@ func getSettingsPath() string {
 	return filepath.Join(appPath, SETTINGS_FILE_NAME)
 }
 
-func getShareLinksDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		log.Fatal("Cannot determine user home directory")
-	}
-	shareLinksPath := filepath.Join(home, APP_NAME, "shares")
-	if _, err := os.Stat(shareLinksPath); os.IsNotExist(err) {
-		err = os.MkdirAll(shareLinksPath, 0755)
-		if err != nil {
-			log.Fatal("Cannot create share links directory")
-		}
-	}
-	return shareLinksPath
-}
-
-func (s *Settings) CreateShareLinks() error {
-	shareLinksDir := getShareLinksDir()
-	s.shareLinks = make(map[string]string)
-
-	// Clean up existing symlinks
-	entries, _ := os.ReadDir(shareLinksDir)
-	for _, entry := range entries {
-		os.Remove(filepath.Join(shareLinksDir, entry.Name()))
-	}
-
-	// Create new symlinks
-	for i, realPath := range s.SharePaths {
-		if realPath == "" {
-			continue
-		}
-		// Create a generic name for the symlink
-		linkName := fmt.Sprintf("share_%d", i)
-		linkPath := filepath.Join(shareLinksDir, linkName)
-
-		err := os.Symlink(realPath, linkPath)
-		if err != nil {
-			return fmt.Errorf("failed to create symlink for %s: %v", realPath, err)
-		}
-		s.shareLinks[linkPath] = realPath
-	}
-	return nil
-}
-
-func (s *Settings) GetShareLinks() []string {
-	shareLinksDir := getShareLinksDir()
-	var links []string
-	entries, err := os.ReadDir(shareLinksDir)
-	if err != nil {
-		return []string{}
-	}
-	for _, entry := range entries {
-		links = append(links, filepath.Join(shareLinksDir, entry.Name()))
-	}
-	return links
-}
-
 func GetSettings() *Settings {
 	settingsPath := getSettingsPath()
 
 	// Default settings
 	settings := &Settings{
 		DownloadPath: filepath.Join(os.Getenv("HOME"), "Downloads"),
-		SharePaths:   []string{"/Users/boris/Desktop/Music"},
+		SharePaths:   []string{DEFAULT_SHARE_PATH},
 		shareLinks:   make(map[string]string),
 	}
 
@@ -148,12 +93,6 @@ func GetSettings() *Settings {
 			log.Printf("Error parsing settings file: %v", err)
 			// Continue with defaults
 		}
-	}
-
-	// Create symlinks for share paths
-	err = settings.CreateShareLinks()
-	if err != nil {
-		log.Printf("Error creating share links: %v", err)
 	}
 
 	return settings

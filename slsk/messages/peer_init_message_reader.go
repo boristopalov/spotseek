@@ -4,8 +4,6 @@ type PeerInitMessageReader struct {
 	*MessageReader
 }
 
-// func (mr *PeerInitMessageReader) HandlePeerInitMessage() ([]byte, error)
-
 func (mr *PeerInitMessageReader) ParsePeerInit() (string, string, uint32) {
 	return mr.ReadString(), mr.ReadString(), mr.ReadInt32()
 }

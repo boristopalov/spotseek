@@ -85,7 +85,14 @@ func (c *SlskClient) handlePierceFirewall(conn net.Conn, mr *messages.PeerInitMe
 	if peer == nil {
 		return nil, fmt.Errorf("failed to connect to peer: %v", peer)
 	}
-	go peer.ListenForMessages()
+	switch usernameAndConnType.connType {
+	case "P":
+		go peer.ListenForPeerMessages()
+	case "D":
+		go peer.ListenForDistributedMessages()
+	case "F":
+		go peer.ListenForFileTransferMessages()
+	}
 	return map[string]interface{}{
 		"token": token,
 	}, nil
@@ -102,7 +109,16 @@ func (c *SlskClient) handlePeerInit(conn net.Conn, mr *messages.PeerInitMessageR
 	if peer == nil {
 		return nil, fmt.Errorf("failed to connect to peer: %v", peer)
 	}
-	go peer.ListenForMessages()
+	switch connType {
+	case "P":
+		go peer.ListenForPeerMessages()
+	case "D":
+		go peer.ListenForDistributedMessages()
+	case "F":
+		go peer.ListenForFileTransferMessages()
+	default:
+		log.Error("Unknown peer connection type", "peer", peer, "connType", connType)
+	}
 	return map[string]interface{}{
 		"username": username,
 		"connType": connType,

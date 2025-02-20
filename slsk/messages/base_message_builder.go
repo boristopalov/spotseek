@@ -15,7 +15,7 @@ func NewMessageBuilder() *MessageBuilder {
 }
 
 // 1 byte so no need for little endian conversion
-func (mb *MessageBuilder) AddInt8(val int8) {
+func (mb *MessageBuilder) AddInt8(val uint8) {
 	mb.Message = append(mb.Message, byte(val))
 }
 
