@@ -1,7 +1,6 @@
 package shared
 
 import (
-	"encoding/binary"
 	"errors"
 	"net"
 	"spotseek/logging"
@@ -23,13 +22,10 @@ func (conn *Connection) SendMessage(message []byte) error {
 		return err
 	}
 
-	log := logging.GetLogger()
-
-	// length looks off??
-	log.Info("sending message",
-		"remoteAddr", conn.RemoteAddr().String(),
-		"code", binary.LittleEndian.Uint32(message[4:8]),
-		"length", binary.LittleEndian.Uint32(message[:4]),
-		"message", string(message[8:]))
+	// log.Info("sending message",
+	// 	"remoteAddr", conn.RemoteAddr().String(),
+	// 	"code", binary.LittleEndian.Uint32(message[4:8]),
+	// 	"length", binary.LittleEndian.Uint32(message[:4]),
+	// 	"message", string(message[8:]))
 	return nil
 }

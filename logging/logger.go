@@ -155,8 +155,9 @@ func GetLogger() *slog.Logger {
 		// Create a JSON handler with source information
 		opts := &slog.HandlerOptions{
 			Level:     slog.LevelInfo,
-			AddSource: true,
+			AddSource: false,
 		}
+		// logger = slog.New(tint.NewHandler(os.Stdout, nil))
 
 		logger = slog.New(NewHandler(opts))
 	})

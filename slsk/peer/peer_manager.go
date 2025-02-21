@@ -12,15 +12,8 @@ import (
 
 var log = logging.GetLogger()
 
-type peerKey = string
-
-// Helper function to create peer key
-func makePeerKey(username, connType string) peerKey {
-	return username + "|" + connType
-}
-
 type PeerManager struct {
-	peers         map[peerKey]*Peer // username|connType --> Peer info
+	peers         map[string]*Peer // username --> Peer info
 	mu            sync.RWMutex
 	eventEmitter  chan<- PeerEvent
 	eventListener <-chan PeerEvent
@@ -28,7 +21,7 @@ type PeerManager struct {
 
 func NewPeerManager(eventChan chan PeerEvent) *PeerManager {
 	m := &PeerManager{
-		peers:         make(map[peerKey]*Peer),
+		peers:         make(map[string]*Peer),
 		eventEmitter:  eventChan,
 		eventListener: eventChan,
 	}
@@ -39,8 +32,7 @@ func NewPeerManager(eventChan chan PeerEvent) *PeerManager {
 func (manager *PeerManager) RemovePeer(peer *Peer) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
-	key := makePeerKey(peer.Username, peer.ConnType)
-	delete(manager.peers, key)
+	delete(manager.peers, peer.Username)
 }
 
 // for outgoing connection attempts
@@ -55,22 +47,14 @@ func (manager *PeerManager) ConnectToPeer(host string, port uint32, username str
 		return err
 	}
 
-	switch connType {
-	case "P":
-		go peer.ListenForPeerMessages()
-	case "D":
-		go peer.ListenForDistributedMessages()
-	case "F":
-		go peer.ListenForFileTransferMessages()
-	}
+	go peer.Listen()
 	return nil
 }
 
 func (manager *PeerManager) GetPeer(username string, connType string) *Peer {
 	manager.mu.RLock()
 	defer manager.mu.RUnlock()
-	key := makePeerKey(username, connType)
-	peer, exists := manager.peers[key]
+	peer, exists := manager.peers[username]
 	if exists {
 		return peer
 	}
@@ -78,9 +62,8 @@ func (manager *PeerManager) GetPeer(username string, connType string) *Peer {
 }
 
 func (manager *PeerManager) AddPeer(username string, connType string, ip string, port uint32, token uint32, privileged uint8) *Peer {
-	key := makePeerKey(username, connType)
 	manager.mu.RLock()
-	peer, exists := manager.peers[key]
+	peer, exists := manager.peers[username]
 	manager.mu.RUnlock()
 
 	if exists {
@@ -95,7 +78,7 @@ func (manager *PeerManager) AddPeer(username string, connType string, ip string,
 
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
-	manager.peers[key] = peer
+	manager.peers[username] = peer
 	log.Info("connected to peer", "peer", peer)
 	return peer
 }
@@ -151,6 +134,8 @@ func (manager *PeerManager) listenForEvents() {
 		switch event.Type {
 		case PeerConnected:
 		case PeerDisconnected:
+			log.Warn("Stopped listening for messages from peer",
+				"peer", event.Peer.Username)
 			event.Peer.ClosePeer()
 			manager.RemovePeer(event.Peer)
 		}

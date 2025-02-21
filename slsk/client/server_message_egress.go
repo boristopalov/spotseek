@@ -40,7 +40,6 @@ func (c *SlskClient) FileSearch(query string) {
 	t := c.NextSearchToken()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.TokenSearches[t] = query
 	c.SearchResults[t] = make([]shared.SearchResult, 0)
 	msg := mb.FileSearch(t, query)
 	c.ServerConnection.SendMessage(msg)

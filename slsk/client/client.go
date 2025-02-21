@@ -67,7 +67,6 @@ type SlskClient struct {
 	User                                string                      // the user that is logged in
 	PendingOutgoingPeerConnections      map[string]PendingTokenConn // username --> connection info
 	PendingOutgoingPeerConnectionTokens map[uint32]PendingTokenConn // token --> connection info
-	TokenSearches                       map[uint32]string
 	ConnectionToken                     uint32
 	SearchToken                         uint32
 	SearchResults                       map[uint32][]shared.SearchResult // token --> search results
@@ -83,7 +82,6 @@ func NewSlskClient(host string, port int) *SlskClient {
 		ConnectionToken:                     42,
 		SearchToken:                         42,
 		SearchResults:                       make(map[uint32][]shared.SearchResult),
-		TokenSearches:                       make(map[uint32]string),
 		PendingOutgoingPeerConnections:      make(map[string]PendingTokenConn),
 		PendingOutgoingPeerConnectionTokens: make(map[uint32]PendingTokenConn),
 		JoinedRooms:                         make(map[string]*Room),
@@ -127,7 +125,7 @@ func (c *SlskClient) Connect(username, pw string) error {
 
 	go func() {
 		c.HaveNoParent(1)
-		time.Sleep(5 * time.Second)
+		time.Sleep(2 * time.Second)
 		c.FileSearch("norbak clima")
 	}()
 

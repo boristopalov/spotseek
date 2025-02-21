@@ -4,15 +4,23 @@ import (
 	"spotseek/slsk/messages"
 )
 
-type DistributedPeer struct {
+type DistributedPeer interface {
+	BasePeer
+	SearchRequest(username string, token uint32, query string) error
+	BranchLevel(branchLevel uint32) error
+	BranchRoot(branchRoot string) error
+	DistributedMessage(embeddedMessage string) error
+}
+
+type DistributedPeerImpl struct {
 	*Peer
 	branchLevel int
 	branchRoot  string
 	childDepth  int
 }
 
-func NewDistributedPeer(peer *Peer) *DistributedPeer {
-	return &DistributedPeer{
+func NewDistributedPeerImpl(peer *Peer) *DistributedPeerImpl {
+	return &DistributedPeerImpl{
 		Peer:        peer,
 		branchLevel: -1,
 		branchRoot:  "",
@@ -20,7 +28,7 @@ func NewDistributedPeer(peer *Peer) *DistributedPeer {
 	}
 }
 
-func (peer *DistributedPeer) SearchRequest(username string, token uint32, query string) error {
+func (peer *DistributedPeerImpl) SearchRequest(username string, token uint32, query string) error {
 	mb := messages.PeerMessageBuilder{
 		MessageBuilder: messages.NewMessageBuilder(),
 	}
@@ -33,7 +41,7 @@ func (peer *DistributedPeer) SearchRequest(username string, token uint32, query 
 	return err
 }
 
-func (peer *DistributedPeer) BranchLevel(branchLevel uint32) error {
+func (peer *DistributedPeerImpl) BranchLevel(branchLevel uint32) error {
 	mb := messages.PeerMessageBuilder{
 		MessageBuilder: messages.NewMessageBuilder(),
 	}
@@ -43,7 +51,7 @@ func (peer *DistributedPeer) BranchLevel(branchLevel uint32) error {
 	return err
 }
 
-func (peer *DistributedPeer) BranchRoot(branchRoot string) error {
+func (peer *DistributedPeerImpl) BranchRoot(branchRoot string) error {
 	mb := messages.PeerMessageBuilder{
 		MessageBuilder: messages.NewMessageBuilder(),
 	}
@@ -54,7 +62,7 @@ func (peer *DistributedPeer) BranchRoot(branchRoot string) error {
 }
 
 // https://nicotine-plus.org/doc/SLSKPROTOCOL.html#distributed-code-93
-func (peer *DistributedPeer) DistributedMessage(embeddedMessage string) error {
+func (peer *DistributedPeerImpl) DistributedMessage(embeddedMessage string) error {
 	mb := messages.PeerMessageBuilder{
 		MessageBuilder: messages.NewMessageBuilder(),
 	}

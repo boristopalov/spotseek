@@ -2,8 +2,11 @@ package messages
 
 import (
 	"encoding/binary"
+	"spotseek/logging"
 	"strconv"
 )
+
+var log = logging.GetLogger()
 
 type MessageReader struct {
 	Message []byte
@@ -25,6 +28,10 @@ func (mr *MessageReader) ReadBool() bool {
 
 func (mr *MessageReader) ReadString() string {
 	length := mr.ReadInt32()
+	if length > (uint32(cap(mr.Message)) - mr.Pointer) {
+		log.Error("string length g.t. message", "stringLen", length, "msgLen", cap(mr.Message))
+		return ""
+	}
 	content := string(mr.Message[mr.Pointer : mr.Pointer+length])
 	mr.IncrementPointer(length)
 	return content
