@@ -67,8 +67,12 @@ func (manager *PeerManager) AddPeer(username string, connType string, ip string,
 	manager.mu.RUnlock()
 
 	if exists {
-		log.Warn("peer already connected", "peer", peer)
-		return nil
+		if peer.ConnType == connType {
+			log.Warn("peer already connected", "peer", peer)
+			return nil
+		}
+		peer.ConnType = connType
+		return peer
 	}
 
 	peer, err := newPeer(username, connType, token, ip, port, privileged, manager.peerCh)

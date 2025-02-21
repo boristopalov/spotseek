@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"sync"
 
 	"github.com/joho/godotenv"
 )
@@ -22,6 +23,9 @@ var (
 	SOULSEEK_USERNAME  string
 	SOULSEEK_PASSWORD  string
 	DEFAULT_SHARE_PATH string
+
+	settings *Settings
+	once     sync.Once
 )
 
 type Settings struct {
@@ -76,6 +80,9 @@ func getSettingsPath() string {
 }
 
 func GetSettings() *Settings {
+	if settings != nil {
+		return settings
+	}
 	settingsPath := getSettingsPath()
 
 	// Default settings
@@ -98,12 +105,13 @@ func GetSettings() *Settings {
 	return settings
 }
 
-func SaveSettings(settings *Settings) error {
-	data, err := json.MarshalIndent(settings, "", "  ")
+func SaveSettings(newSettings *Settings) error {
+	data, err := json.MarshalIndent(newSettings, "", "  ")
 	if err != nil {
 		return err
 	}
 
+	settings = newSettings
 	settingsPath := getSettingsPath()
 	return os.WriteFile(settingsPath, data, 0600)
 }
