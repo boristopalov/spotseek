@@ -90,11 +90,7 @@ func Download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := peer.QueueUpload(filename)
-	if err != nil {
-		http.Error(w, "Failed to queue upload: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+	peer.QueueUpload(filename)
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Download queued"})

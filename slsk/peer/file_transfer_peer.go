@@ -11,19 +11,15 @@ type FileTransferPeer interface {
 }
 
 func (peer *Peer) FileTransferInit(token uint32) error {
-	mb := messages.PeerMessageBuilder{
-		MessageBuilder: messages.NewMessageBuilder(),
-	}
-	msg := mb.FileTransferInit(token)
-	err := peer.SendMessage(msg)
+	mb := messages.NewMessageBuilder()
+	mb.AddInt32(token)
+	err := peer.SendMessage(mb.Message)
 	return err
 }
 
 func (peer *Peer) FileOffset(offset uint64) error {
-	mb := messages.PeerMessageBuilder{
-		MessageBuilder: messages.NewMessageBuilder(),
-	}
-	msg := mb.FileOffset(offset)
-	err := peer.SendMessage(msg)
+	mb := messages.NewMessageBuilder()
+	mb.AddInt64(offset)
+	err := peer.SendMessage(mb.Message)
 	return err
 }

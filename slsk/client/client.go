@@ -73,6 +73,7 @@ type SlskClient struct {
 	JoinedRooms                         map[string]*Room                 // room name --> users in room
 	PeerManager                         *peer.PeerManager
 	FileManager                         *fileshare.FileShareManager
+	peerEventCh                         chan peer.PeerEvent
 }
 
 func NewSlskClient(host string, port int) *SlskClient {
@@ -85,7 +86,6 @@ func NewSlskClient(host string, port int) *SlskClient {
 		PendingOutgoingPeerConnections:      make(map[string]PendingTokenConn),
 		PendingOutgoingPeerConnectionTokens: make(map[uint32]PendingTokenConn),
 		JoinedRooms:                         make(map[string]*Room),
-		PeerManager:                         peer.NewPeerManager(make(chan peer.PeerEvent)),
 	}
 }
 
@@ -109,8 +109,6 @@ func (c *SlskClient) Connect(username, pw string) error {
 	}
 	c.ServerConnection = &shared.Connection{Conn: conn}
 	c.Listener = listener
-	go c.ListenForServerMessages()
-	go c.ListenForIncomingPeers()
 
 	c.Login(username, pw)
 	c.SetWaitPort(2234)
@@ -122,6 +120,16 @@ func (c *SlskClient) Connect(username, pw string) error {
 
 	// set up fileshare manager
 	c.FileManager = fileshare.NewFileShareManager(shares)
+
+	// Initialize peer event channel
+	peerEventCh := make(chan peer.PeerEvent)
+	c.peerEventCh = peerEventCh
+	c.PeerManager = peer.NewPeerManager(peerEventCh)
+
+	go c.ListenForServerMessages() // server messages sent to client
+	go c.ListenForIncomingPeers()  // peer init
+
+	go c.listenForPeerEvents() // peer manager events sent to client
 
 	go func() {
 		c.HaveNoParent(1)
@@ -173,4 +181,26 @@ func (c *SlskClient) RemovePendingPeer(username string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.PendingOutgoingPeerConnections, username)
+}
+
+func (c *SlskClient) listenForPeerEvents() {
+	for event := range c.peerEventCh {
+		switch event.Type {
+		case peer.PeerDisconnected:
+			log.Info("Peer disconnected event received",
+				"peer", event.Peer.Username)
+			// Clean up any pending connections
+			c.RemovePendingPeer(event.Peer.Username)
+
+		case peer.PeerConnected:
+			log.Info("Peer connected event received",
+				"peer", event.Peer.Username)
+			// Handle new peer connections if needed
+
+		default:
+			log.Warn("Unknown peer event received",
+				"type", event.Type,
+				"peer", event.Peer.Username)
+		}
+	}
 }

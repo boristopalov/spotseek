@@ -13,17 +13,17 @@ import (
 var log = logging.GetLogger()
 
 type PeerManager struct {
-	peers         map[string]*Peer // username --> Peer info
-	mu            sync.RWMutex
-	eventEmitter  chan<- PeerEvent
-	eventListener <-chan PeerEvent
+	peers    map[string]*Peer // username --> Peer info
+	mu       sync.RWMutex
+	peerCh   chan PeerEvent
+	clientCh chan<- PeerEvent
 }
 
-func NewPeerManager(eventChan chan PeerEvent) *PeerManager {
+func NewPeerManager(eventChan chan<- PeerEvent) *PeerManager {
 	m := &PeerManager{
-		peers:         make(map[string]*Peer),
-		eventEmitter:  eventChan,
-		eventListener: eventChan,
+		peers:    make(map[string]*Peer),
+		peerCh:   make(chan PeerEvent),
+		clientCh: eventChan,
 	}
 	go m.listenForEvents()
 	return m
@@ -71,7 +71,7 @@ func (manager *PeerManager) AddPeer(username string, connType string, ip string,
 		return nil
 	}
 
-	peer, err := newPeer(username, connType, token, ip, port, privileged, manager.eventEmitter)
+	peer, err := newPeer(username, connType, token, ip, port, privileged, manager.peerCh)
 	if err != nil {
 		return nil
 	}
@@ -83,16 +83,12 @@ func (manager *PeerManager) AddPeer(username string, connType string, ip string,
 	return peer
 }
 
-func newPeer(username string, connType string, token uint32, host string, port uint32, privileged uint8, eventEmitter chan<- PeerEvent) (*Peer, error) {
+func newPeer(username string, connType string, token uint32, host string, port uint32, privileged uint8, peerCh chan<- PeerEvent) (*Peer, error) {
 	c, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host, port), 10*time.Second)
 	if err != nil {
 		log.Error("failed to connect to peer",
 			"username", username,
 			"connType", connType,
-			"token", token,
-			"host", host,
-			"port", port,
-			"privileged", privileged,
 			"err", err,
 		)
 		return nil, fmt.Errorf("unable to establish connection to peer %s: %v", username, err)
@@ -105,7 +101,7 @@ func newPeer(username string, connType string, token uint32, host string, port u
 			Host:           host,
 			Port:           port,
 			Privileged:     privileged,
-			EventEmitter:   eventEmitter,
+			mgrCh:          peerCh,
 		}, nil
 	}
 }
@@ -130,7 +126,7 @@ func (peer *Peer) PierceFirewall(token uint32) error {
 }
 
 func (manager *PeerManager) listenForEvents() {
-	for event := range manager.eventListener {
+	for event := range manager.peerCh {
 		switch event.Type {
 		case PeerConnected:
 		case PeerDisconnected:

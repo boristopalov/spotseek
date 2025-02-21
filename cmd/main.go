@@ -66,10 +66,7 @@ func (c *CLI) Run(args []string) error {
 			return fmt.Errorf("not connected to peer %s", username)
 		}
 
-		err := peer.QueueUpload(filename)
-		if err != nil {
-			return fmt.Errorf("failed to queue download: %v", err)
-		}
+		peer.QueueUpload(filename)
 		fmt.Fprintf(c.output, "Download queued for %s from %s\n", filename, username)
 
 	case "serve":

@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net"
 	"spotseek/slsk/messages"
 	"spotseek/slsk/shared"
@@ -36,7 +37,7 @@ type Peer struct {
 	Host           string             `json:"host"`
 	Port           uint32             `json:"port"`
 	Privileged     uint8              `json:"privileged"`
-	EventEmitter   chan<- PeerEvent   `json:"-"` // Skip in JSON
+	mgrCh          chan<- PeerEvent   `json:"-"` // Skip in JSON
 }
 
 type PeerEvent struct {
@@ -60,7 +61,7 @@ func (peer *Peer) Listen() {
 	var messageLength uint32
 
 	defer func() {
-		peer.EventEmitter <- PeerEvent{Type: PeerDisconnected, Peer: peer}
+		peer.mgrCh <- PeerEvent{Type: PeerDisconnected, Peer: peer}
 	}()
 
 	for {
@@ -152,10 +153,24 @@ func (peer *Peer) handlePeerMessage(messageData []byte, messageLength uint32) er
 
 func (peer *Peer) handleStandardMessage(code uint32, reader *messages.MessageReader, messageLength uint32) (map[string]interface{}, error) {
 	switch code {
-	case 4:
-		return peer.handleGetSharedFileList(reader)
+	case 5:
+		return peer.handleSharedFileListResponse(reader, messageLength)
 	case 9:
 		return peer.handleFileSearchResponse(reader, messageLength)
+	case 40:
+		return peer.handleTransferRequest(reader)
+	case 41:
+		return peer.handleTransferResponse(reader)
+	case 43:
+		return peer.handleQueueUpload(reader)
+	case 44:
+		return peer.handlePlaceInQueueResponse(reader)
+	case 46:
+		return peer.handleUploadFailed(reader)
+	case 50:
+		return peer.handleUploadDenied(reader)
+	case 51:
+		return peer.handlePlaceInQueueRequest(reader)
 	default:
 		log.Error("Unsupported standard peer message code",
 			"code", code,
@@ -164,9 +179,78 @@ func (peer *Peer) handleStandardMessage(code uint32, reader *messages.MessageRea
 	}
 }
 
-func (peer *Peer) handleGetSharedFileList(reader *messages.MessageReader) (map[string]interface{}, error) {
-	// TODO: Implement shared file list handling
-	return nil, nil
+func (peer *Peer) handleSharedFileListResponse(reader *messages.MessageReader, messageLength uint32) (map[string]interface{}, error) {
+	// Get the compressed content
+	compressedData := reader.Message[reader.Pointer:messageLength]
+
+	r, err := zlib.NewReader(bytes.NewReader(compressedData))
+	if err != nil {
+		log.Error("Error creating zlib reader",
+			"err", err,
+			"compressed_length", len(compressedData))
+		return nil, err
+	}
+	defer r.Close()
+
+	decompressed, err := io.ReadAll(r)
+	if err != nil {
+		log.Error("Error decompressing message", "err", err)
+		return nil, err
+	}
+
+	decompressedReader := messages.NewMessageReader(decompressed)
+
+	result := shared.SharedFileList{}
+
+	// Read number of directories
+	dirCount := decompressedReader.ReadInt32()
+	result.Directories = make([]shared.Directory, dirCount)
+
+	// Iterate through directories
+	for i := 0; i < int(dirCount); i++ {
+		dir := shared.Directory{}
+		dir.Name = decompressedReader.ReadString()
+
+		// Read number of files in this directory
+		fileCount := decompressedReader.ReadInt32()
+		dir.Files = make([]shared.File, fileCount)
+
+		// Iterate through files
+		for j := 0; j < int(fileCount); j++ {
+			_ = decompressedReader.ReadInt8() // code is always 1
+			filename := decompressedReader.ReadString()
+			size := decompressedReader.ReadInt64()
+			extension := decompressedReader.ReadString() // extension
+
+			// Read file attributes
+			attrCount := decompressedReader.ReadInt32()
+			var bitrate, duration uint32
+
+			for k := 0; k < int(attrCount); k++ {
+				attrType := decompressedReader.ReadInt32()
+				if attrType == 0 {
+					bitrate = decompressedReader.ReadInt32()
+				} else if attrType == 1 {
+					duration = decompressedReader.ReadInt32()
+				}
+			}
+
+			dir.Files[j] = shared.File{
+				Name:      filename,
+				Size:      size,
+				BitRate:   bitrate,
+				Duration:  duration,
+				Extension: extension,
+			}
+		}
+
+		result.Directories[i] = dir
+	}
+
+	return map[string]interface{}{
+		"type":   "SharedFileListResponse",
+		"result": result,
+	}, nil
 }
 
 func (peer *Peer) handleFileSearchResponse(reader *messages.MessageReader, messageLength uint32) (map[string]interface{}, error) {
@@ -209,7 +293,7 @@ func (peer *Peer) handleFileSearchResponse(reader *messages.MessageReader, messa
 			continue
 		}
 		size := decompressedReader.ReadInt64()
-		_ = decompressedReader.ReadString() // extension (always blank in Qt)
+		extension := decompressedReader.ReadString() // extension (always blank in Qt)
 		attributeCount := decompressedReader.ReadInt32()
 
 		var bitrate, duration uint32
@@ -223,10 +307,11 @@ func (peer *Peer) handleFileSearchResponse(reader *messages.MessageReader, messa
 		}
 
 		result.PublicFiles[i] = shared.File{
-			Filename: filename,
-			Size:     size,
-			BitRate:  bitrate,
-			Duration: duration,
+			Name:      filename,
+			Size:      size,
+			BitRate:   bitrate,
+			Duration:  duration,
+			Extension: extension,
 		}
 	}
 
@@ -234,8 +319,171 @@ func (peer *Peer) handleFileSearchResponse(reader *messages.MessageReader, messa
 	result.AvgSpeed = decompressedReader.ReadInt32()
 	result.QueueLength = decompressedReader.ReadInt32()
 
+	peer.mgrCh <- PeerEvent{Type: FileSearchResponse, Peer: peer}
+
 	return map[string]interface{}{
 		"type":   "FileSearchResponse",
 		"result": result,
 	}, nil
+}
+
+func (peer *Peer) TransferRequest(direction uint32, token uint32, filename string, filesize uint64) []byte {
+	mb := messages.NewMessageBuilder()
+	mb.AddInt32(direction)
+	mb.AddInt32(token)
+	mb.AddString(filename)
+	if direction == 1 {
+		mb.AddInt64(filesize)
+	}
+
+	return mb.Build(40)
+}
+
+func (peer *Peer) handleTransferRequest(reader *messages.MessageReader) (map[string]interface{}, error) {
+	direction := reader.ReadInt32()
+	if direction != 0 && direction != 1 {
+		return nil, fmt.Errorf("invalid transfer direction: %d", direction)
+	}
+
+	token := reader.ReadInt32()
+	filename := reader.ReadString()
+
+	result := map[string]interface{}{
+		"direction": direction,
+		"token":     token,
+		"filename":  filename,
+	}
+
+	// For upload requests (direction == 1), read the file size
+	if direction == 1 {
+		filesize := reader.ReadInt64()
+		result["filesize"] = filesize
+	}
+
+	return map[string]interface{}{
+		"type":   "TransferRequest",
+		"result": result,
+	}, nil
+}
+
+func (peer *Peer) TransferResponse(token uint32, allowed bool, filesize uint64) []byte {
+	mb := messages.NewMessageBuilder()
+
+	mb.AddInt32(token)
+	if allowed {
+		mb.AddInt8(1)
+		mb.AddInt64(filesize)
+	} else {
+		mb.AddInt8(0)
+		mb.AddString("Cancelled") // placeholder for now
+	}
+
+	return mb.Build(41)
+}
+
+func (peer *Peer) handleTransferResponse(reader *messages.MessageReader) (map[string]interface{}, error) {
+	token := reader.ReadInt32()
+	allowed := reader.ReadInt8() == 1
+
+	result := map[string]interface{}{
+		"token":   token,
+		"allowed": allowed,
+	}
+
+	if !allowed {
+		result["reason"] = reader.ReadString()
+	}
+
+	return map[string]interface{}{
+		"type":   "TransferResponse",
+		"result": result,
+	}, nil
+}
+
+func (peer *Peer) QueueUpload(filename string) {
+	mb := messages.NewMessageBuilder()
+	mb.AddString(filename)
+
+	peer.SendMessage(mb.Build(43))
+}
+
+// Tells us that we should queue a file for transfer. Send transfer request here
+func (peer *Peer) handleQueueUpload(reader *messages.MessageReader) (map[string]interface{}, error) {
+	filename := reader.ReadString()
+
+	// random token
+	token := rand.Uint32()
+
+	peer.TransferRequest(1, token, filename, 0)
+
+	return map[string]interface{}{
+		"type":   "QueueUpload",
+		"result": filename,
+	}, nil
+}
+
+func (peer *Peer) handlePlaceInQueueResponse(reader *messages.MessageReader) (map[string]interface{}, error) {
+	filename := reader.ReadString()
+	place := reader.ReadInt32()
+
+	return map[string]interface{}{
+		"type":     "PlaceInQueueResponse",
+		"filename": filename,
+		"place":    place,
+	}, nil
+}
+
+func (peer *Peer) PlaceInQueueResponse(filename string, place uint32) []byte {
+	mb := messages.NewMessageBuilder()
+	mb.AddString(filename)
+	mb.AddInt32(place)
+	return mb.Build(44)
+}
+
+// UploadFailed handling
+func (peer *Peer) handleUploadFailed(reader *messages.MessageReader) (map[string]interface{}, error) {
+	filename := reader.ReadString()
+	return map[string]interface{}{
+		"type":     "UploadFailed",
+		"filename": filename,
+	}, nil
+}
+
+func (peer *Peer) UploadFailed(filename string) []byte {
+	mb := messages.NewMessageBuilder()
+	mb.AddString(filename)
+	return mb.Build(46)
+}
+
+// UploadDenied handling
+func (peer *Peer) handleUploadDenied(reader *messages.MessageReader) (map[string]interface{}, error) {
+	filename := reader.ReadString()
+	reason := reader.ReadString()
+
+	return map[string]interface{}{
+		"type":     "UploadDenied",
+		"filename": filename,
+		"reason":   reason,
+	}, nil
+}
+
+func (peer *Peer) UploadDenied(filename string, reason string) []byte {
+	mb := messages.NewMessageBuilder()
+	mb.AddString(filename)
+	mb.AddString(reason)
+	return mb.Build(50)
+}
+
+func (peer *Peer) handlePlaceInQueueRequest(reader *messages.MessageReader) (map[string]interface{}, error) {
+	filename := reader.ReadString()
+	return map[string]interface{}{
+		"type":     "PlaceInQueueRequest",
+		"filename": filename,
+	}, nil
+}
+
+func (peer *Peer) PlaceInQueueRequest(filename string) []byte {
+	mb := messages.NewMessageBuilder()
+	mb.AddString(filename)
+	return mb.Build(51)
 }

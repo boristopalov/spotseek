@@ -29,9 +29,7 @@ func NewDistributedPeerImpl(peer *Peer) *DistributedPeerImpl {
 }
 
 func (peer *DistributedPeerImpl) SearchRequest(username string, token uint32, query string) error {
-	mb := messages.PeerMessageBuilder{
-		MessageBuilder: messages.NewMessageBuilder(),
-	}
+	mb := messages.NewMessageBuilder()
 	mb.AddInt32(1) // unknown
 	mb.AddString(username)
 	mb.AddString(query)
@@ -42,9 +40,7 @@ func (peer *DistributedPeerImpl) SearchRequest(username string, token uint32, qu
 }
 
 func (peer *DistributedPeerImpl) BranchLevel(branchLevel uint32) error {
-	mb := messages.PeerMessageBuilder{
-		MessageBuilder: messages.NewMessageBuilder(),
-	}
+	mb := messages.NewMessageBuilder()
 	mb.AddInt32(branchLevel)
 	msg := mb.Build(4)
 	err := peer.SendMessage(msg)
@@ -52,9 +48,7 @@ func (peer *DistributedPeerImpl) BranchLevel(branchLevel uint32) error {
 }
 
 func (peer *DistributedPeerImpl) BranchRoot(branchRoot string) error {
-	mb := messages.PeerMessageBuilder{
-		MessageBuilder: messages.NewMessageBuilder(),
-	}
+	mb := messages.NewMessageBuilder()
 	mb.AddString(branchRoot)
 	msg := mb.Build(5)
 	err := peer.SendMessage(msg)
@@ -63,9 +57,7 @@ func (peer *DistributedPeerImpl) BranchRoot(branchRoot string) error {
 
 // https://nicotine-plus.org/doc/SLSKPROTOCOL.html#distributed-code-93
 func (peer *DistributedPeerImpl) DistributedMessage(embeddedMessage string) error {
-	mb := messages.PeerMessageBuilder{
-		MessageBuilder: messages.NewMessageBuilder(),
-	}
+	mb := messages.NewMessageBuilder()
 	mb.AddInt8(3) // the only type of distributed message sent currently is SearchRequest
 	mb.AddString(embeddedMessage)
 	msg := mb.Build(93)
