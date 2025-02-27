@@ -6,8 +6,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/rand/v2"
 	"net"
+	"runtime/debug"
 	"spotseek/slsk/messages"
 	"spotseek/slsk/shared"
 	"sync"
@@ -16,11 +18,13 @@ import (
 type Event int
 
 const (
-	PeerConnected Event = iota
-	PeerDisconnected
+	PeerDisconnected Event = iota
 	FileSearchResponse
 	FolderContentsRequest
 	PlaceInQueueResponse
+	DistribSearch
+	BranchLevel
+	BranchRoot
 	// Maximum allowed message size (32MB)
 	MaxMessageSize = 32 * 1024 * 1024
 )
@@ -41,14 +45,16 @@ type Peer struct {
 	Port             uint32                   `json:"port"`
 	Privileged       uint8                    `json:"privileged"`
 	mgrCh            chan<- PeerEvent         `json:"-"` // Skip in JSON
+	downloadFileCh   chan struct{}            `json:"-"`
 	pendingTransfers map[uint32]*FileTransfer `json:"-"`
 	transfersMutex   sync.RWMutex             `json:"-"`
+	logger           *slog.Logger             `json:"-"`
 }
 
 type PeerEvent struct {
 	Type Event
 	Peer *Peer
-	Data interface{}
+	Data any
 }
 
 type FolderContentsData struct {
@@ -66,12 +72,30 @@ type PlaceInQueueData struct {
 	Place    uint32
 }
 
+// type PlaceInQueueRequestData struct {
+// 	Filename string
+// }
+
 type FileTransfer struct {
 	Filename string
 	Size     uint64
 	Token    uint32
 	Buffer   *bytes.Buffer
 	Offset   uint64
+}
+
+type DistribSearchMessage struct {
+	Username string
+	Token    uint32
+	Query    string
+}
+
+type BranchLevelMessage struct {
+	BranchLevel uint32
+}
+
+type BranchRootMessage struct {
+	BranchRootUsername string
 }
 
 func (p *Peer) SendMessage(msg []byte) error {
@@ -94,30 +118,36 @@ func (peer *Peer) Listen() {
 	}()
 
 	for {
-		n, err := peer.PeerConnection.Read(readBuffer)
-		if err != nil {
-			if err == io.EOF {
-				log.Error("Peer closed the connection",
-					"peer", peer.Username)
+		select {
+		case <-peer.downloadFileCh:
+			peer.ConnType = "F"
+			go peer.FileListen()
+			return
+		default:
+			n, err := peer.PeerConnection.Read(readBuffer)
+			if err != nil {
+				if err == io.EOF {
+					peer.logger.Error("Peer closed the connection",
+						"peer", peer.Username)
+					return
+				}
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					peer.logger.Error("Timeout reading from peer, retrying...",
+						"peer", peer.Username)
+					continue
+				}
+				peer.logger.Error("Error reading from peer",
+					"peer", peer.Username,
+					"err", err)
 				return
 			}
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				log.Error("Timeout reading from peer, retrying...",
-					"peer", peer.Username)
-				continue
-			}
-			log.Error("Error reading from peer",
-				"peer", peer.Username,
-				"err", err)
-			return
+			currentMessage = append(currentMessage, readBuffer[:n]...)
+			currentMessage, messageLength = peer.processMessage(currentMessage, messageLength)
 		}
-
-		currentMessage = append(currentMessage, readBuffer[:n]...)
-		currentMessage, messageLength = peer.processMessage(currentMessage, messageLength)
 	}
 }
 
-func (peer *Peer) ClosePeer() {
+func (peer *Peer) Close() {
 	peer.PeerConnection.Close()
 }
 
@@ -138,12 +168,35 @@ func (peer *Peer) processMessage(data []byte, messageLength uint32) ([]byte, uin
 			return data, messageLength // Not enough data for full message
 		}
 
-		// Handle valid message
-		if err := peer.handlePeerMessage(data[:messageLength], messageLength); err != nil {
-			log.Error("Error handling peer message",
-				"err", err,
-				"length", messageLength,
-				"peer", peer.Username)
+		defer func() {
+			if r := recover(); r != nil {
+				peer.logger.Error("recovered from panic",
+					"error", r,
+				)
+				// Optionally log the stack trace
+				debug.PrintStack()
+			}
+		}()
+
+		if peer.ConnType == "P" {
+			// Handle valid message
+			if err := peer.handleMessage(data[:messageLength], messageLength); err != nil {
+				peer.logger.Error("Error handling peer message",
+					"err", err,
+					"length", messageLength,
+					"peer", peer.Username)
+			}
+		} else if peer.ConnType == "D" {
+			p := NewDistributedPeer(peer)
+			if err := p.handleMessage(data[:messageLength]); err != nil {
+				peer.logger.Error("Error handling peer message",
+					"err", err,
+					"length", messageLength,
+					"peer", peer.Username)
+			}
+		} else {
+			peer.logger.Error("Unsupported connection type when handling message", "peer", peer)
+			return nil, 0
 		}
 
 		data = data[messageLength:]
@@ -151,61 +204,49 @@ func (peer *Peer) processMessage(data []byte, messageLength uint32) ([]byte, uin
 	}
 }
 
-func (peer *Peer) handlePeerMessage(messageData []byte, messageLength uint32) error {
+func (peer *Peer) handleMessage(messageData []byte, messageLength uint32) error {
 	reader := messages.NewMessageReader(messageData)
 	code := reader.ReadInt32()
 
 	var decoded map[string]interface{}
 	var err error
-
-	switch peer.ConnType {
-	case "P":
-		decoded, err = peer.handleStandardMessage(code, reader, messageLength)
-	// case "D":
-	// decoded, err = peer.handleDistributedMessage(code, reader, messageLength)
+	switch code {
+	case 5:
+		decoded, err = peer.handleSharedFileListResponse(reader, messageLength)
+	case 9:
+		decoded, err = peer.handleFileSearchResponse(reader, messageLength)
+	case 36:
+		decoded, err = peer.handleFolderContentsRequest(reader)
+	case 40:
+		decoded, err = peer.handleTransferRequest(reader)
+	case 41:
+		decoded, err = peer.handleTransferResponse(reader)
+	case 43:
+		decoded, err = peer.handleQueueUpload(reader)
+	case 44:
+		decoded, err = peer.handlePlaceInQueueResponse(reader)
+	case 46:
+		decoded, err = peer.handleUploadFailed(reader)
+	case 50:
+		decoded, err = peer.handleUploadDenied(reader)
+	case 51:
+		decoded, err = peer.handlePlaceInQueueRequest(reader)
 	default:
-		return fmt.Errorf("unknown connection type: %v", peer.ConnType)
+		peer.logger.Error("Unsupported standard peer message code",
+			"code", code,
+			"peer", peer.Username)
+		return fmt.Errorf("unsupported message code %d", code)
 	}
 
 	if err != nil {
 		return fmt.Errorf("error processing peer msg: %w", err)
 	}
 
-	log.Info("received message from peer",
+	peer.logger.Info("received message from peer",
 		"code", code,
 		"message", decoded,
 		"peer", peer.Username)
 	return nil
-}
-
-func (peer *Peer) handleStandardMessage(code uint32, reader *messages.MessageReader, messageLength uint32) (map[string]interface{}, error) {
-	switch code {
-	case 5:
-		return peer.handleSharedFileListResponse(reader, messageLength)
-	case 9:
-		return peer.handleFileSearchResponse(reader, messageLength)
-	case 36:
-		return peer.handleFolderContentsRequest(reader)
-	case 40:
-		return peer.handleTransferRequest(reader)
-	case 41:
-		return peer.handleTransferResponse(reader)
-	case 43:
-		return peer.handleQueueUpload(reader)
-	case 44:
-		return peer.handlePlaceInQueueResponse(reader)
-	case 46:
-		return peer.handleUploadFailed(reader)
-	case 50:
-		return peer.handleUploadDenied(reader)
-	case 51:
-		return peer.handlePlaceInQueueRequest(reader)
-	default:
-		log.Error("Unsupported standard peer message code",
-			"code", code,
-			"peer", peer.Username)
-		return nil, nil
-	}
 }
 
 func (peer *Peer) handleSharedFileListResponse(reader *messages.MessageReader, messageLength uint32) (map[string]interface{}, error) {
@@ -214,7 +255,7 @@ func (peer *Peer) handleSharedFileListResponse(reader *messages.MessageReader, m
 
 	r, err := zlib.NewReader(bytes.NewReader(compressedData))
 	if err != nil {
-		log.Error("Error creating zlib reader",
+		peer.logger.Error("Error creating zlib reader",
 			"err", err,
 			"compressed_length", len(compressedData))
 		return nil, err
@@ -223,7 +264,7 @@ func (peer *Peer) handleSharedFileListResponse(reader *messages.MessageReader, m
 
 	decompressed, err := io.ReadAll(r)
 	if err != nil {
-		log.Error("Error decompressing message", "err", err)
+		peer.logger.Error("Error decompressing message", "err", err)
 		return nil, err
 	}
 
@@ -297,13 +338,13 @@ func (peer *Peer) handleFileSearchResponse(reader *messages.MessageReader, messa
 	// Get the compressed content using the message length
 	compressedData := reader.Message[reader.Pointer:messageLength]
 
-	log.Debug("Attempting to decompress data",
+	peer.logger.Debug("Attempting to decompress data",
 		"compressed_length", len(compressedData),
 		"first_bytes", compressedData)
 
 	r, err := zlib.NewReader(bytes.NewReader(compressedData))
 	if err != nil {
-		log.Error("Error creating zlib reader",
+		peer.logger.Error("Error creating zlib reader",
 			"err", err,
 			"compressed_length", len(compressedData))
 		return nil, err
@@ -312,7 +353,7 @@ func (peer *Peer) handleFileSearchResponse(reader *messages.MessageReader, messa
 	defer r.Close()
 	decompressed, err := io.ReadAll(r)
 	if err != nil {
-		log.Error("Error decompressing message", "err", err)
+		peer.logger.Error("Error decompressing message", "err", err)
 		return nil, err
 	}
 
@@ -324,6 +365,9 @@ func (peer *Peer) handleFileSearchResponse(reader *messages.MessageReader, messa
 
 	// Handle public files
 	fileCount := decompressedReader.ReadInt32()
+	if fileCount < 1 {
+		return nil, nil
+	}
 	result.PublicFiles = make([]shared.File, fileCount)
 
 	for i := 0; i < int(fileCount); i++ {
@@ -381,7 +425,7 @@ func (peer *Peer) TransferRequest(direction uint32, token uint32, filename strin
 
 func (peer *Peer) handleTransferRequest(reader *messages.MessageReader) (map[string]interface{}, error) {
 	direction := reader.ReadInt32()
-	if direction != 0 && direction != 1 {
+	if direction != 1 {
 		return nil, fmt.Errorf("invalid transfer direction: %d", direction)
 	}
 
@@ -394,32 +438,30 @@ func (peer *Peer) handleTransferRequest(reader *messages.MessageReader) (map[str
 		"filename":  filename,
 	}
 
-	// For upload requests (direction == 1), read the file size
 	// at this point we should have already sent a QueueUpload to the peer
 	// This message is sent in response to our QueueUpload message
 	// We send a TransferResponse to the peer to let them know we are ready to receive the file
-	if direction == 1 {
-		filesize := reader.ReadInt64()
-		result["filesize"] = filesize
+	filesize := reader.ReadInt64()
+	result["filesize"] = filesize
 
-		// Initialize transfer tracking
-		peer.transfersMutex.Lock()
-		if peer.pendingTransfers == nil {
-			peer.pendingTransfers = make(map[uint32]*FileTransfer)
-		}
-		peer.pendingTransfers[token] = &FileTransfer{
-			Filename: filename,
-			Size:     uint64(filesize),
-			Token:    token,
-			Buffer:   bytes.NewBuffer(make([]byte, 0, filesize)),
-		}
-		peer.transfersMutex.Unlock()
-
-		// Tell the peer we're ready to receive
-		// We expect to recieve an "F" connection after this
-		// See slsk/client/listener.go for handling "F" connections
-		peer.TransferResponse(token, true, uint64(filesize))
+	// Initialize transfer tracking
+	peer.transfersMutex.Lock()
+	if peer.pendingTransfers == nil {
+		peer.pendingTransfers = make(map[uint32]*FileTransfer)
 	}
+	peer.pendingTransfers[token] = &FileTransfer{
+		Filename: filename,
+		Size:     uint64(filesize),
+		Token:    token,
+		Buffer:   bytes.NewBuffer(make([]byte, 0, filesize)),
+	}
+	peer.transfersMutex.Unlock()
+
+	// Tell the peer we're ready to receive
+	// We expect to recieve an "F" connection after this
+	// See slsk/client/listener.go for handling "F" connections
+	peer.TransferResponse(token, true, uint64(filesize))
+	peer.downloadFileCh <- struct{}{}
 
 	return map[string]interface{}{
 		"type":   "TransferRequest",
@@ -463,10 +505,16 @@ func (peer *Peer) handleTransferResponse(reader *messages.MessageReader) (map[st
 
 // Tell the peer that we want to download a file, i.e. they should queue an upload on their end
 func (peer *Peer) QueueUpload(filename string) {
+	peer.logger.Info("Requesting file from peer",
+		"filename", filename,
+		"peer", peer.Username,
+	)
 	mb := messages.NewMessageBuilder()
 	mb.AddString(filename)
 
 	peer.SendMessage(mb.Build(43))
+
+	peer.PlaceInQueueRequest(filename)
 }
 
 // Tells us that we should queue a file for transfer. Send transfer request here
@@ -544,9 +592,12 @@ func (peer *Peer) handlePlaceInQueueRequest(reader *messages.MessageReader) (map
 		"type":     "PlaceInQueueRequest",
 		"filename": filename,
 	}, nil
+
+	// peer.mgrCh <- PeerEvent{Type: PlaceInQueueRequest, Peer: peer, Data: PlaceInQueueData{Filename: filename}}
+
 }
 
-func (peer *Peer) PlaceInQueueRequest(filename string, place uint32) {
+func (peer *Peer) PlaceInQueueRequest(filename string) {
 	mb := messages.NewMessageBuilder()
 	mb.AddString(filename)
 
@@ -560,4 +611,5 @@ func (peer *Peer) PlaceInQueueRequest(filename string, place uint32) {
 // 4. peer sends PlaceInQueueResponse to us?
 // 5. peer sends a TransferRequest to us
 // 6. we send a TransferResponse to the peer
-// 7. ???
+// 7. peer starts "F" connection with file data
+// 8. we download the file

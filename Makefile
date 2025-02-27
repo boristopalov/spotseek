@@ -16,6 +16,9 @@ build: ## Build the application
 run: build ## Run the application in server mode
 	./$(BINARY_NAME) serve
 
+run-tui: build ## Run the application in TUI mode
+	./$(BINARY_NAME) tui
+
 test: ## Run tests
 	$(GO) test -v ./...
 

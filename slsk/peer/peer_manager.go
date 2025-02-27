@@ -2,28 +2,32 @@ package peer
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
-	"spotseek/logging"
 	"spotseek/slsk/messages"
 	"spotseek/slsk/shared"
 	"sync"
 	"time"
 )
 
-var log = logging.GetLogger()
-
 type PeerManager struct {
-	peers    map[string]*Peer // username --> Peer info
-	mu       sync.RWMutex
-	peerCh   chan PeerEvent
-	clientCh chan<- PeerEvent
+	peers         map[string]*Peer // username --> Peer info
+	mu            sync.RWMutex
+	peerCh        chan PeerEvent
+	clientCh      chan<- PeerEvent
+	children      []*DistributedPeer
+	SearchResults map[uint32][]shared.SearchResult // token --> search results
+	logger        *slog.Logger
 }
 
-func NewPeerManager(eventChan chan<- PeerEvent) *PeerManager {
+func NewPeerManager(eventChan chan<- PeerEvent, logger *slog.Logger) *PeerManager {
 	m := &PeerManager{
-		peers:    make(map[string]*Peer),
-		peerCh:   make(chan PeerEvent),
-		clientCh: eventChan,
+		peers:         make(map[string]*Peer),
+		peerCh:        make(chan PeerEvent),
+		clientCh:      eventChan,
+		children:      make([]*DistributedPeer, 0),
+		SearchResults: make(map[uint32][]shared.SearchResult),
+		logger:        logger,
 	}
 	go m.listenForEvents()
 	return m
@@ -51,7 +55,7 @@ func (manager *PeerManager) ConnectToPeer(host string, port uint32, username str
 	return nil
 }
 
-func (manager *PeerManager) GetPeer(username string, connType string) *Peer {
+func (manager *PeerManager) GetPeer(username string) *Peer {
 	manager.mu.RLock()
 	defer manager.mu.RUnlock()
 	peer, exists := manager.peers[username]
@@ -68,14 +72,14 @@ func (manager *PeerManager) AddPeer(username string, connType string, ip string,
 
 	if exists {
 		if peer.ConnType == connType {
-			log.Warn("peer already connected", "peer", peer)
+			manager.logger.Warn("peer already connected", "peer", peer)
 			return nil
 		}
 		peer.ConnType = connType
 		return peer
 	}
 
-	peer, err := newPeer(username, connType, token, ip, port, privileged, manager.peerCh)
+	peer, err := newPeer(username, connType, token, ip, port, privileged, manager.peerCh, manager.logger)
 	if err != nil {
 		return nil
 	}
@@ -83,18 +87,13 @@ func (manager *PeerManager) AddPeer(username string, connType string, ip string,
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	manager.peers[username] = peer
-	log.Info("connected to peer", "peer", peer)
+	manager.logger.Info("connected to peer", "peer", peer)
 	return peer
 }
 
-func newPeer(username string, connType string, token uint32, host string, port uint32, privileged uint8, peerCh chan<- PeerEvent) (*Peer, error) {
+func newPeer(username string, connType string, token uint32, host string, port uint32, privileged uint8, peerCh chan<- PeerEvent, logger *slog.Logger) (*Peer, error) {
 	c, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host, port), 10*time.Second)
 	if err != nil {
-		log.Error("failed to connect to peer",
-			"username", username,
-			"connType", connType,
-			"err", err,
-		)
 		return nil, fmt.Errorf("unable to establish connection to peer %s: %v", username, err)
 	} else {
 		return &Peer{
@@ -106,6 +105,8 @@ func newPeer(username string, connType string, token uint32, host string, port u
 			Port:           port,
 			Privileged:     privileged,
 			mgrCh:          peerCh,
+			downloadFileCh: make(chan struct{}),
+			logger:         logger,
 		}, nil
 	}
 }
@@ -129,15 +130,54 @@ func (peer *Peer) PierceFirewall(token uint32) error {
 	return err
 }
 
+// TODO: complete handling of PeerEvents
 func (manager *PeerManager) listenForEvents() {
 	for event := range manager.peerCh {
 		switch event.Type {
-		case PeerConnected:
 		case PeerDisconnected:
-			log.Warn("Stopped listening for messages from peer",
+			manager.logger.Warn("Stopped listening for messages from peer",
 				"peer", event.Peer.Username)
-			event.Peer.ClosePeer()
+			event.Peer.Close()
+			manager.mu.Lock()
 			manager.RemovePeer(event.Peer)
+			manager.mu.Unlock()
+		case FileSearchResponse:
+			msg := event.Data.(FileSearchData)
+			manager.mu.Lock()
+			manager.SearchResults[msg.Token] =
+				append(manager.SearchResults[msg.Token], msg.Results)
+			manager.mu.Unlock()
+
+			manager.clientCh <- event
+
+		// Distributed Messages
+		case DistribSearch:
+			msg := event.Data.(DistribSearchMessage)
+			mb := messages.NewMessageBuilder()
+			mb.AddInt32(1) // unknown
+			mb.AddString(msg.Username)
+			mb.AddInt32(msg.Token)
+			mb.AddString(msg.Query)
+			data := mb.Build(3)
+			for _, child := range manager.children {
+				child.PeerConnection.SendMessage(data)
+			}
+		case BranchLevel:
+			msg := event.Data.(BranchLevelMessage)
+			mb := messages.NewMessageBuilder()
+			mb.AddInt32(msg.BranchLevel)
+			data := mb.Build(4)
+			for _, child := range manager.children {
+				child.PeerConnection.SendMessage(data)
+			}
+		case BranchRoot:
+			msg := event.Data.(BranchRootMessage)
+			mb := messages.NewMessageBuilder()
+			mb.AddString(msg.BranchRootUsername)
+			data := mb.Build(5)
+			for _, child := range manager.children {
+				child.PeerConnection.SendMessage(data)
+			}
 		}
 	}
 }

@@ -14,12 +14,12 @@ func (c *SlskClient) ListenForIncomingPeers() {
 	for {
 		peerConn, err := c.Listener.Accept()
 		if err != nil {
-			log.Error("Error accepting peer connection", "err", err)
+			c.logger.Error("Error accepting peer connection", "err", err)
 			continue
 		}
 		message, err := readPeerInitMessage(peerConn)
 		if err != nil {
-			log.Error("Error reading peer message", "err", err)
+			c.logger.Error("Error reading peer message", "err", err)
 			continue
 		}
 
@@ -33,13 +33,13 @@ func (c *SlskClient) ListenForIncomingPeers() {
 		case 1:
 			decoded, err = c.handlePeerInit(peerConn, peerMsgReader)
 		default:
-			log.Error("Unknown peer message code", "code", code)
+			c.logger.Error("Unknown peer message code", "code", code)
 		}
 		if err != nil {
-			log.Error("Error handling peer message", "err", err)
+			c.logger.Error("Error handling peer message", "err", err)
 			continue
 		}
-		log.Info("Message from peer", "code", code, "message", decoded, "peerAddr", peerConn.RemoteAddr().String())
+		c.logger.Info("Message from peer", "code", code, "message", decoded, "peerAddr", peerConn.RemoteAddr().String())
 	}
 }
 
@@ -68,13 +68,13 @@ func (c *SlskClient) handlePierceFirewall(conn net.Conn, mr *messages.MessageRea
 	token := mr.ReadInt32()
 	usernameAndConnType, ok := c.PendingOutgoingPeerConnectionTokens[token]
 	if !ok {
-		log.Error("No pending connection for token", "token", token)
+		c.logger.Error("No pending connection for token", "token", token)
 		return map[string]interface{}{
 			"token": token,
 		}, nil
 	}
 
-	log.Info("Received PierceFirewall", "username", usernameAndConnType.username)
+	c.logger.Info("Received PierceFirewall", "username", usernameAndConnType.username)
 	host, port, err := SplitHostPort(conn)
 	if err != nil {
 		return nil, err

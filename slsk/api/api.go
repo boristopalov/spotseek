@@ -84,7 +84,7 @@ func Download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	peer := c.PeerManager.GetPeer(username, connType)
+	peer := c.PeerManager.GetPeer(username)
 	if peer == nil {
 		http.Error(w, "Not connected to the specified peer", http.StatusBadRequest)
 		return

@@ -65,7 +65,7 @@ func (peer *Peer) FileListen() error {
 		n, err := peer.PeerConnection.Read(readBuffer)
 		if err != nil {
 			if err == io.EOF {
-				log.Info("File transfer completed",
+				peer.logger.Info("File transfer completed",
 					"peer", peer.Username,
 					"filename", transfer.Filename)
 				return nil
@@ -82,12 +82,7 @@ func (peer *Peer) FileListen() error {
 
 		// Check if transfer is complete
 		if uint64(transfer.Buffer.Len()) >= transfer.Size {
-			err = writeToDownloadsDir(transfer.Filename, transfer.Buffer.Bytes())
-			if err != nil {
-				return err
-			}
-			delete(peer.pendingTransfers, token)
-			return nil
+			return writeToDownloadsDir(transfer.Filename, transfer.Buffer.Bytes())
 		}
 	}
 }

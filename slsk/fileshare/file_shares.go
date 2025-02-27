@@ -2,17 +2,15 @@ package fileshare
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"spotseek/config"
-	"spotseek/logging"
 
 	"go.senan.xyz/taglib"
 )
-
-var log = logging.GetLogger()
 
 var validExts = map[string]bool{
 	".mp3":  true,
@@ -50,22 +48,24 @@ type FileInfo struct {
 type Shared struct {
 	Files    []SharedFile
 	settings *config.Settings
+	logger   *slog.Logger
 }
 
 // NewShared creates a new Shared instance
-func NewShared(settings *config.Settings) *Shared {
+func NewShared(settings *config.Settings, logger *slog.Logger) *Shared {
 	shared := &Shared{
 		Files:    make([]SharedFile, 0),
 		settings: settings,
+		logger:   logger,
 	}
 
 	// Create initial symlinks and scan directories
 	err := shared.RefreshShares()
 	if err != nil {
-		log.Warn("Warning: Error refreshing shares", "err", err)
+		shared.logger.Warn("Warning: Error refreshing shares", "err", err)
 	}
 
-	log.Info("Shared initialized", "numFiles", len(shared.Files))
+	shared.logger.Info("Shared initialized", "numFiles", len(shared.Files))
 	return shared
 }
 
@@ -104,7 +104,7 @@ func (s *Shared) RefreshShares() error {
 				// Create directory structure in shareLinksDir
 				targetDir := filepath.Join(shareLinksDir, relPath)
 				if err := os.MkdirAll(targetDir, 0755); err != nil {
-					log.Error("could not create directory",
+					s.logger.Error("could not create directory",
 						"dir", targetDir,
 						"err", err,
 					)
@@ -116,7 +116,7 @@ func (s *Shared) RefreshShares() error {
 			// Get audio metadata
 			fileInfo, err := getAudioMetadata(path)
 			if err != nil {
-				log.Error("could not read audio metadata",
+				s.logger.Error("could not read audio metadata",
 					"path", path,
 					"err", err,
 				)
@@ -131,7 +131,7 @@ func (s *Shared) RefreshShares() error {
 			symlinkPath := filepath.Join(shareLinksDir, relPath)
 			// Remove existing symlink if it exists
 			if err := os.Remove(symlinkPath); err != nil && !os.IsNotExist(err) {
-				log.Error("could not remove existing symlink",
+				s.logger.Error("could not remove existing symlink",
 					"path", symlinkPath,
 					"err", err,
 				)
@@ -139,7 +139,7 @@ func (s *Shared) RefreshShares() error {
 			}
 			// Create new symlink
 			if err := os.Symlink(path, symlinkPath); err != nil {
-				log.Error("could not create symlink",
+				s.logger.Error("could not create symlink",
 					"from", path,
 					"to", symlinkPath,
 					"err", err,
@@ -152,12 +152,12 @@ func (s *Shared) RefreshShares() error {
 				VirtualPath: symlinkPath,
 			}
 
-			log.Info("file info", "sharedFile", f)
+			// log.Info("file info", "sharedFile", f)
 			s.Files = append(s.Files, f)
 			return nil
 		})
 		if err != nil {
-			log.Error("could not scan folder",
+			s.logger.Error("could not scan folder",
 				"realPath", realPath,
 				"err", err,
 			)
@@ -270,13 +270,13 @@ func matches(str, query string) bool {
 func getShareLinksDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		log.Error("Cannot determine user home directory", "err", err)
+		return ""
 	}
 	shareLinksPath := filepath.Join(home, config.APP_NAME, "shares")
 	if _, err := os.Stat(shareLinksPath); os.IsNotExist(err) {
 		err = os.MkdirAll(shareLinksPath, 0755)
 		if err != nil {
-			log.Error("Cannot create share links directory", "err", err)
+			return ""
 		}
 	}
 	return shareLinksPath

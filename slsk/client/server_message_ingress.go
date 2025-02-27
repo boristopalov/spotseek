@@ -18,7 +18,7 @@ func (c *SlskClient) ListenForServerMessages() {
 	for {
 		n, err := c.ServerConnection.Read(readBuffer)
 		if err != nil {
-			log.Error("failed to read server message", "err", err)
+			c.logger.Error("failed to read server message", "err", err)
 			return
 		}
 
@@ -56,7 +56,7 @@ func (c *SlskClient) handleServerMessage(messageData []byte) {
 
 	defer func() {
 		if r := recover(); r != nil {
-			log.Error("recovered from panic",
+			c.logger.Error("recovered from panic",
 				"error", r,
 			)
 			// Optionally log the stack trace
@@ -147,7 +147,7 @@ func (c *SlskClient) handleServerMessage(messageData []byte) {
 	case 1001:
 		c.HandleCantConnectToPeer(mr)
 	default:
-		log.Error("invalid code", "code", code)
+		c.logger.Error("invalid code", "code", code)
 	}
 	// log.Info("received message from server", "code", code, "message", decoded)
 }
@@ -155,15 +155,15 @@ func (c *SlskClient) handleServerMessage(messageData []byte) {
 func (c *SlskClient) HandleLogin(mr *messages.MessageReader) (map[string]interface{}, error) {
 	decoded := make(map[string]interface{})
 	success := mr.ReadBool()
-	log.Info("Login success status", "success", success)
+	c.logger.Info("Login success status", "success", success)
 	if !success {
 		reason := mr.ReadString()
 		return nil, errors.New(reason)
 	}
 	greetingMessage := mr.ReadString()
 	ip := mr.ReadInt32()
-	log.Info("Greeting message", "message", greetingMessage)
-	log.Info("IP from server", "message", ip)
+	c.logger.Info("Greeting message", "message", greetingMessage)
+	c.logger.Info("IP from server", "message", ip)
 	return decoded, nil
 }
 

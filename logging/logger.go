@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"strconv"
@@ -38,15 +39,11 @@ func colorize(colorCode int, v string) string {
 	return fmt.Sprintf("\033[%sm%s%s", strconv.Itoa(colorCode), v, reset)
 }
 
-var (
-	logger *slog.Logger
-	once   sync.Once
-)
-
 type Handler struct {
 	h slog.Handler
 	b *bytes.Buffer
 	m *sync.Mutex
+	w io.Writer
 }
 
 func (h *Handler) Enabled(ctx context.Context, level slog.Level) bool {
@@ -54,11 +51,11 @@ func (h *Handler) Enabled(ctx context.Context, level slog.Level) bool {
 }
 
 func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return &Handler{h: h.h.WithAttrs(attrs), b: h.b, m: h.m}
+	return &Handler{h: h.h.WithAttrs(attrs), b: h.b, m: h.m, w: h.w}
 }
 
 func (h *Handler) WithGroup(name string) slog.Handler {
-	return &Handler{h: h.h.WithGroup(name), b: h.b, m: h.m}
+	return &Handler{h: h.h.WithGroup(name), b: h.b, m: h.m, w: h.w}
 }
 
 func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
@@ -86,7 +83,7 @@ func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 		return fmt.Errorf("error when marshaling attrs: %w", err)
 	}
 
-	fmt.Println(
+	fmt.Fprintln(h.w,
 		colorize(lightGray, r.Time.Format(timeFormat)),
 		level,
 		colorize(white, r.Message),
@@ -133,9 +130,12 @@ func suppressDefaults(
 	}
 }
 
-func NewHandler(opts *slog.HandlerOptions) *Handler {
+func NewHandler(opts *slog.HandlerOptions, w io.Writer) *Handler {
 	if opts == nil {
 		opts = &slog.HandlerOptions{}
+	}
+	if w == nil {
+		w = os.Stdout
 	}
 	b := &bytes.Buffer{}
 	return &Handler{
@@ -146,22 +146,8 @@ func NewHandler(opts *slog.HandlerOptions) *Handler {
 			ReplaceAttr: suppressDefaults(opts.ReplaceAttr),
 		}),
 		m: &sync.Mutex{},
+		w: w,
 	}
-}
-
-// InitLogger returns a configured JSON logger with source location information
-func GetLogger() *slog.Logger {
-	once.Do(func() {
-		// Create a JSON handler with source information
-		opts := &slog.HandlerOptions{
-			Level:     slog.LevelInfo,
-			AddSource: false,
-		}
-		// logger = slog.New(tint.NewHandler(os.Stdout, nil))
-
-		logger = slog.New(NewHandler(opts))
-	})
-	return logger
 }
 
 func LogFatal(l *slog.Logger, msg string, args ...any) {

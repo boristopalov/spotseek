@@ -3,10 +3,7 @@ package shared
 import (
 	"errors"
 	"net"
-	"spotseek/logging"
 )
-
-var log = logging.GetLogger()
 
 type Connection struct {
 	net.Conn
@@ -18,7 +15,6 @@ func (conn *Connection) SendMessage(message []byte) error {
 	}
 	_, err := conn.Write(message)
 	if err != nil {
-		log.Error("Error Sending Message", "err", err)
 		return err
 	}
 

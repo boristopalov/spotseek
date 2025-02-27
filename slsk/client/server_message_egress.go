@@ -39,19 +39,19 @@ func (c *SlskClient) FileSearch(query string) {
 	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	t := c.NextSearchToken()
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.SearchResults[t] = make([]shared.SearchResult, 0)
+	c.PeerManager.SearchResults[t] = make([]shared.SearchResult, 0)
+	c.mu.Unlock()
 	msg := mb.FileSearch(t, query)
 	c.ServerConnection.SendMessage(msg)
 }
 
 func (c *SlskClient) ConnectToPeer(username string, connType string) {
-	if peer := c.PeerManager.GetPeer(username, connType); peer != nil {
+	if peer := c.PeerManager.GetPeer(username); peer != nil {
 		return
 	}
 	token := c.NextConnectionToken()
 
-	log.Info("Requesting indirect connection to user",
+	c.logger.Info("Requesting indirect connection to user",
 		"token", token,
 		"username", username,
 		"connType", connType,

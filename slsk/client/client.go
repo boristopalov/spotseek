@@ -3,17 +3,15 @@ package client
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"spotseek/config"
-	"spotseek/logging"
 	"spotseek/slsk/fileshare"
 	"spotseek/slsk/peer"
 	"spotseek/slsk/shared"
 	"sync"
 	"time"
 )
-
-var log = logging.GetLogger()
 
 type IP struct {
 	IP   string
@@ -69,32 +67,38 @@ type SlskClient struct {
 	PendingOutgoingPeerConnectionTokens map[uint32]PendingTokenConn // token --> connection info
 	ConnectionToken                     uint32
 	SearchToken                         uint32
-	SearchResults                       map[uint32][]shared.SearchResult // token --> search results
-	JoinedRooms                         map[string]*Room                 // room name --> users in room
+	JoinedRooms                         map[string]*Room // room name --> users in room
 	PeerManager                         *peer.PeerManager
+	PeerEventCh                         chan peer.PeerEvent
 	FileManager                         *fileshare.FileShareManager
-	peerEventCh                         chan peer.PeerEvent
+	logger                              *slog.Logger
 }
 
-func NewSlskClient(host string, port int) *SlskClient {
+func NewSlskClient(host string, port int, logger *slog.Logger) *SlskClient {
+	if logger == nil {
+		return nil
+	}
+	peerEventCh := make(chan peer.PeerEvent)
 	return &SlskClient{
 		Host:                                host,
 		Port:                                port,
 		ConnectionToken:                     42,
 		SearchToken:                         42,
-		SearchResults:                       make(map[uint32][]shared.SearchResult),
 		PendingOutgoingPeerConnections:      make(map[string]PendingTokenConn),
 		PendingOutgoingPeerConnectionTokens: make(map[uint32]PendingTokenConn),
 		JoinedRooms:                         make(map[string]*Room),
+		PeerEventCh:                         peerEventCh,
+		PeerManager:                         peer.NewPeerManager(peerEventCh, logger),
+		logger:                              logger,
 	}
 }
 
 // Connect to soulseek server and login
 func (c *SlskClient) Connect(username, pw string) error {
 	// Set up our shared files
-	shares := fileshare.NewShared(config.GetSettings())
+	shares := fileshare.NewShared(config.GetSettings(), c.logger)
 	stats := shares.GetShareStats()
-	log.Info("share stats", "stats", stats)
+	c.logger.Info("share stats", "stats", stats)
 
 	dialer := &net.Dialer{
 		KeepAlive: 120 * time.Second,
@@ -112,8 +116,8 @@ func (c *SlskClient) Connect(username, pw string) error {
 
 	c.Login(username, pw)
 	c.SetWaitPort(2234)
-	log.Info("Established connection to Soulseek server")
-	log.Info("Listening on port 2234")
+	c.logger.Info("Established connection to Soulseek server")
+	c.logger.Info("Listening on port 2234")
 	c.User = username
 
 	c.SharedFoldersFiles(stats.TotalFolders, stats.TotalFiles)
@@ -121,21 +125,10 @@ func (c *SlskClient) Connect(username, pw string) error {
 	// set up fileshare manager
 	c.FileManager = fileshare.NewFileShareManager(shares)
 
-	// Initialize peer event channel
-	peerEventCh := make(chan peer.PeerEvent)
-	c.peerEventCh = peerEventCh
-	c.PeerManager = peer.NewPeerManager(peerEventCh)
-
 	go c.ListenForServerMessages() // server messages sent to client
 	go c.ListenForIncomingPeers()  // peer init
 
-	go c.listenForPeerEvents() // peer manager events sent to client
-
-	go func() {
-		c.HaveNoParent(1)
-		time.Sleep(2 * time.Second)
-		c.FileSearch("norbak clima")
-	}()
+	// go c.listenForPeerEvents() // peer manager events sent to client
 
 	// c.JoinRoom("nicotine")
 	// c.JoinRoom("The Lobby")
@@ -152,7 +145,7 @@ func (c *SlskClient) Close() error {
 		return err
 	}
 	c.User = ""
-	log.Info("Connection closed")
+	c.logger.Info("Connection closed")
 	return nil
 }
 
@@ -161,14 +154,14 @@ func (c *SlskClient) AddPendingPeer(token uint32, username string, connType stri
 	defer c.mu.Unlock()
 	_, found := c.PendingOutgoingPeerConnections[username]
 	if found {
-		log.Warn("Peer connection already pending",
+		c.logger.Warn("Peer connection already pending",
 			"token", token,
 			"username", username,
 			"connType", connType,
 		)
 		return
 	}
-	log.Info("Pending peer connection added",
+	c.logger.Info("Pending peer connection added",
 		"token", token,
 		"username", username,
 		"connType", connType,
@@ -183,24 +176,25 @@ func (c *SlskClient) RemovePendingPeer(username string) {
 	delete(c.PendingOutgoingPeerConnections, username)
 }
 
-func (c *SlskClient) listenForPeerEvents() {
-	for event := range c.peerEventCh {
-		switch event.Type {
-		case peer.PeerDisconnected:
-			log.Info("Peer disconnected event received",
-				"peer", event.Peer.Username)
-			// Clean up any pending connections
-			c.RemovePendingPeer(event.Peer.Username)
+// TODO: Move pending peer logic to peer manager!
+// func (c *SlskClient) listenForPeerEvents() {
+// 	for event := range c.peerEventCh {
+// 		switch event.Type {
+// 		case peer.PeerDisconnected:
+// 			log.Info("Peer disconnected event received",
+// 				"peer", event.Peer.Username)
+// 			// Clean up any pending connections
+// 			c.RemovePendingPeer(event.Peer.Username)
 
-		case peer.PeerConnected:
-			log.Info("Peer connected event received",
-				"peer", event.Peer.Username)
-			// Handle new peer connections if needed
+// 		case peer.PeerConnected:
+// 			log.Info("Peer connected event received",
+// 				"peer", event.Peer.Username)
+// 			// Handle new peer connections if needed
 
-		default:
-			log.Warn("Unknown peer event received",
-				"type", event.Type,
-				"peer", event.Peer.Username)
-		}
-	}
-}
+// 		default:
+// 			log.Warn("Unknown peer event received",
+// 				"type", event.Type,
+// 				"peer", event.Peer.Username)
+// 		}
+// 	}
+// }
