@@ -52940,3 +52940,341 @@
 [37m[22:07:13.981][0m [91mERROR:[0m [97mPeer closed the connection[0m [90m{
   "peer": "Firstedition"
 }[0m
+[37m[22:32:03.848][0m [91mERROR:[0m [97mcould not read audio metadata[0m [90m{
+  "err": "file is not a supported audio format: .ds_store",
+  "path": "/Users/boris/Desktop/Music/.DS_Store"
+}[0m
+[37m[22:32:03.889][0m [91mERROR:[0m [97mcould not read audio metadata[0m [90m{
+  "err": "file is not a supported audio format: .ds_store",
+  "path": "/Users/boris/Desktop/Music/Blue house 2:25:22/.DS_Store"
+}[0m
+[37m[22:32:03.969][0m [91mERROR:[0m [97mcould not read audio metadata[0m [90m{
+  "err": "file is not a supported audio format: .ds_store",
+  "path": "/Users/boris/Desktop/Music/april2023/.DS_Store"
+}[0m
+[37m[22:32:03.973][0m [36mINFO:[0m [97mShared initialized[0m [90m{
+  "numFiles": 110
+}[0m
+[37m[22:32:03.973][0m [36mINFO:[0m [97mshare stats[0m [90m{
+  "stats": {
+    "TotalFiles": 110,
+    "TotalFolders": 1
+  }
+}[0m
+[37m[22:32:04.010][0m [36mINFO:[0m [97mEstablished connection to Soulseek server[0m [90m{}[0m
+[37m[22:32:04.010][0m [36mINFO:[0m [97mListening on port 2234[0m [90m{}[0m
+[37m[22:32:04.041][0m [36mINFO:[0m [97mLogin success status[0m [90m{
+  "success": true
+}[0m
+[37m[22:32:04.041][0m [36mINFO:[0m [97mGreeting message[0m [90m{
+  "message": ""
+}[0m
+[37m[22:32:04.041][0m [36mINFO:[0m [97mIP from server[0m [90m{
+  "message": 2907257995
+}[0m
+[37m[22:32:08.802][0m [36mINFO:[0m [97mconnected to peer[0m [90m{
+  "peer": {
+    "connType": "P",
+    "host": "66.171.184.100",
+    "port": 2299,
+    "privileged": 0,
+    "token": 1503621,
+    "username": "koalabeer"
+  }
+}[0m
+[37m[22:32:08.880][0m [36mINFO:[0m [97mreceived message from peer[0m [90m{
+  "code": 9,
+  "message": {
+    "result": {
+      "avgSpeed": 1744896000,
+      "publicFiles": [
+        {
+          "bitRate": 0,
+          "duration": 322,
+          "extension": "",
+          "name": "Music\\Techno FLAC\\Norbak-Sopro_EP-TOKEN124D-24BIT-WEB-FLAC-2024-WAVED\\01-norbak-teste.flac",
+          "size": 64930336
+        },
+        {
+          "bitRate": 0,
+          "duration": 0,
+          "extension": "",
+          "name": "",
+          "size": 0
+        }
+      ],
+      "queueLength": 1291845632,
+      "slotFree": 0,
+      "token": 43,
+      "username": "koalabeer"
+    },
+    "type": "FileSearchResponse"
+  },
+  "peer": "koalabeer"
+}[0m
+[37m[22:32:08.913][0m [36mINFO:[0m [97mconnected to peer[0m [90m{
+  "peer": {
+    "connType": "P",
+    "host": "73.185.189.157",
+    "port": 63860,
+    "privileged": 0,
+    "token": 765359,
+    "username": "zvonx_dub"
+  }
+}[0m
+[37m[22:32:08.945][0m [36mINFO:[0m [97mconnected to peer[0m [90m{
+  "peer": {
+    "connType": "P",
+    "host": "68.15.243.216",
+    "port": 49359,
+    "privileged": 0,
+    "token": 1913,
+    "username": "acidqee"
+  }
+}[0m
+[37m[22:32:08.965][0m [36mINFO:[0m [97mconnected to peer[0m [90m{
+  "peer": {
+    "connType": "P",
+    "host": "76.64.148.226",
+    "port": 54345,
+    "privileged": 0,
+    "token": 625,
+    "username": "deeppeas"
+  }
+}[0m
+[37m[22:32:08.998][0m [36mINFO:[0m [97mreceived message from peer[0m [90m{
+  "code": 9,
+  "message": {
+    "result": {
+      "avgSpeed": 402653184,
+      "publicFiles": [
+        {
+          "bitRate": 0,
+          "duration": 322,
+          "extension": "",
+          "name": "@@oszso\\complete\\gght\\norbak-sopro_ep-token124d-24bit-web-flac-2024-waved\\01-norbak-teste.flac",
+          "size": 64930336
+        }
+      ],
+      "queueLength": 16777216,
+      "slotFree": 5,
+      "token": 43,
+      "username": "zvonx_dub"
+    },
+    "type": "FileSearchResponse"
+  },
+  "peer": "zvonx_dub"
+}[0m
+[37m[22:32:09.006][0m [36mINFO:[0m [97mreceived message from peer[0m [90m{
+  "code": 9,
+  "message": {
+    "result": {
+      "avgSpeed": 1653885,
+      "publicFiles": [
+        {
+          "bitRate": 320,
+          "duration": 322,
+          "extension": "",
+          "name": "@@qzqgu\\!LABELS\\!Token\\[TOKEN124] NORBAK-Sopro_EP-(TOKEN124D)-WEB-2024-PTC\\01-norbak-teste.mp3",
+          "size": 12900353
+        }
+      ],
+      "queueLength": 26,
+      "slotFree": 1,
+      "token": 43,
+      "username": "deeppeas"
+    },
+    "type": "FileSearchResponse"
+  },
+  "peer": "deeppeas"
+}[0m
+[37m[22:32:09.008][0m [36mINFO:[0m [97mreceived message from peer[0m [90m{
+  "code": 9,
+  "message": {
+    "result": {
+      "avgSpeed": 408018,
+      "publicFiles": [
+        {
+          "bitRate": 320,
+          "duration": 322,
+          "extension": "",
+          "name": "@@jkxyq\\Downloads\\2024\\04 April 2024\\Week 3\\NORBAK_Sopro EP (TOKEN124D)-2024\\01-norbak-teste.mp3",
+          "size": 12900353
+        },
+        {
+          "bitRate": 320,
+          "duration": 322,
+          "extension": "",
+          "name": "@@lrfkq\\MUZAK\\2024\\04 April 2024\\Week 3\\NORBAK_Sopro EP (TOKEN124D)-2024\\01-norbak-teste.mp3",
+          "size": 12900353
+        }
+      ],
+      "queueLength": 0,
+      "slotFree": 1,
+      "token": 43,
+      "username": "acidqee"
+    },
+    "type": "FileSearchResponse"
+  },
+  "peer": "acidqee"
+}[0m
+[37m[22:32:09.085][0m [36mINFO:[0m [97mconnected to peer[0m [90m{
+  "peer": {
+    "connType": "P",
+    "host": "37.120.158.227",
+    "port": 12481,
+    "privileged": 0,
+    "token": 4035230,
+    "username": "Grenoybel"
+  }
+}[0m
+[37m[22:32:09.251][0m [36mINFO:[0m [97mreceived message from peer[0m [90m{
+  "code": 9,
+  "message": {
+    "result": {
+      "avgSpeed": 1426128896,
+      "publicFiles": [
+        {
+          "bitRate": 0,
+          "duration": 322,
+          "extension": "",
+          "name": "Scene\\2024\\04\\Techno\\FLAC\\Norbak-Sopro_EP-TOKEN124D-24BIT-WEB-FLAC-2024-WAVED\\01-norbak-teste.flac",
+          "size": 64930336
+        },
+        {
+          "bitRate": 0,
+          "duration": 0,
+          "extension": "",
+          "name": "",
+          "size": 0
+        }
+      ],
+      "queueLength": 1392508928,
+      "slotFree": 0,
+      "token": 43,
+      "username": "Grenoybel"
+    },
+    "type": "FileSearchResponse"
+  },
+  "peer": "Grenoybel"
+}[0m
+[37m[22:32:09.304][0m [36mINFO:[0m [97mconnected to peer[0m [90m{
+  "peer": {
+    "connType": "P",
+    "host": "99.247.180.171",
+    "port": 2234,
+    "privileged": 0,
+    "token": 681634,
+    "username": "makro14"
+  }
+}[0m
+[37m[22:32:09.360][0m [36mINFO:[0m [97mconnected to peer[0m [90m{
+  "peer": {
+    "connType": "P",
+    "host": "46.250.23.180",
+    "port": 63510,
+    "privileged": 0,
+    "token": 2408147,
+    "username": "www.electronicfresh.com"
+  }
+}[0m
+[37m[22:32:09.380][0m [36mINFO:[0m [97mreceived message from peer[0m [90m{
+  "code": 9,
+  "message": {
+    "result": {
+      "avgSpeed": 268435456,
+      "publicFiles": [
+        {
+          "bitRate": 0,
+          "duration": 322,
+          "extension": "",
+          "name": "NONAME\\01-norbak-teste.aif",
+          "size": 58067592
+        }
+      ],
+      "queueLength": 16777216,
+      "slotFree": 5,
+      "token": 43,
+      "username": "makro14"
+    },
+    "type": "FileSearchResponse"
+  },
+  "peer": "makro14"
+}[0m
+[37m[22:32:09.500][0m [36mINFO:[0m [97mreceived message from peer[0m [90m{
+  "code": 9,
+  "message": {
+    "result": {
+      "avgSpeed": 527369,
+      "publicFiles": [
+        {
+          "bitRate": 320,
+          "duration": 322,
+          "extension": "",
+          "name": "@@slmit\\Music New\\Music 2024\\Beatport - Music 2024\\Spring 2024\\Beatport April Top 100 Techno (Raw Deep Hypnotic) 2024\\NORBAK - Teste.mp3",
+          "size": 13503700
+        }
+      ],
+      "queueLength": 390,
+      "slotFree": 1,
+      "token": 43,
+      "username": "www.electronicfresh.com"
+    },
+    "type": "FileSearchResponse"
+  },
+  "peer": "www.electronicfresh.com"
+}[0m
+[37m[22:32:09.720][0m [36mINFO:[0m [97mconnected to peer[0m [90m{
+  "peer": {
+    "connType": "P",
+    "host": "217.64.148.112",
+    "port": 51938,
+    "privileged": 0,
+    "token": 947439,
+    "username": "Scene_sound"
+  }
+}[0m
+[37m[22:32:09.858][0m [36mINFO:[0m [97mreceived message from peer[0m [90m{
+  "code": 9,
+  "message": {
+    "result": {
+      "avgSpeed": 402653184,
+      "publicFiles": [
+        {
+          "bitRate": 0,
+          "duration": 322,
+          "extension": "",
+          "name": "WEBFLAC1\\Norbak-Sopro_EP-TOKEN124D-24BIT-WEB-FLAC-2024-WAVED\\01-norbak-teste.flac",
+          "size": 64930336
+        }
+      ],
+      "queueLength": 0,
+      "slotFree": 5,
+      "token": 43,
+      "username": "Scene_sound"
+    },
+    "type": "FileSearchResponse"
+  },
+  "peer": "Scene_sound"
+}[0m
+[37m[22:32:40.734][0m [91mERROR:[0m [97mPeer closed the connection[0m [90m{
+  "peer": "zvonx_dub"
+}[0m
+[37m[22:32:40.735][0m [93mWARN:[0m [97mStopped listening for messages from peer[0m [90m{
+  "peer": "zvonx_dub"
+}[0m
+[37m[22:32:41.158][0m [91mERROR:[0m [97mPeer closed the connection[0m [90m{
+  "peer": "deeppeas"
+}[0m
+[37m[22:33:09.706][0m [91mERROR:[0m [97mPeer closed the connection[0m [90m{
+  "peer": "Grenoybel"
+}[0m
+[37m[22:33:09.794][0m [91mERROR:[0m [97mPeer closed the connection[0m [90m{
+  "peer": "koalabeer"
+}[0m
+[37m[22:33:10.355][0m [91mERROR:[0m [97mPeer closed the connection[0m [90m{
+  "peer": "makro14"
+}[0m
+[37m[22:33:10.718][0m [91mERROR:[0m [97mPeer closed the connection[0m [90m{
+  "peer": "Scene_sound"
+}[0m

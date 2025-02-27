@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"spotseek/slsk/fileshare"
 	"spotseek/slsk/messages"
 	"spotseek/slsk/shared"
 	"sync"
@@ -18,9 +19,10 @@ type PeerManager struct {
 	children      []*DistributedPeer
 	SearchResults map[uint32][]shared.SearchResult // token --> search results
 	logger        *slog.Logger
+	shares        *fileshare.Shared
 }
 
-func NewPeerManager(eventChan chan<- PeerEvent, logger *slog.Logger) *PeerManager {
+func NewPeerManager(eventChan chan<- PeerEvent, shares *fileshare.Shared, logger *slog.Logger) *PeerManager {
 	m := &PeerManager{
 		peers:         make(map[string]*Peer),
 		peerCh:        make(chan PeerEvent),
@@ -28,6 +30,7 @@ func NewPeerManager(eventChan chan<- PeerEvent, logger *slog.Logger) *PeerManage
 		children:      make([]*DistributedPeer, 0),
 		SearchResults: make(map[uint32][]shared.SearchResult),
 		logger:        logger,
+		shares:        shares,
 	}
 	go m.listenForEvents()
 	return m
@@ -141,6 +144,21 @@ func (manager *PeerManager) listenForEvents() {
 			manager.mu.Lock()
 			manager.RemovePeer(event.Peer)
 			manager.mu.Unlock()
+
+		// incoming file search request
+		case FileSearchRequest:
+			msg := event.Data.(FileSearchRequestMessage)
+			manager.logger.Info("Received file search request", "peer", event.Peer.Username, "token", msg.Token, "filename", msg.Filename)
+			res := manager.shares.Search(msg.Filename)
+			if len(res) > 0 {
+				manager.logger.Info("Sending file search response", "peer", event.Peer.Username, "token", msg.Token, "filename", msg.Filename, "results", res)
+				event.Peer.TransferRequest(1, msg.Token, res[0].Key, uint64(res[0].Value.Size))
+			} else {
+				manager.logger.Info("Sending file search denied", "peer", event.Peer.Username, "token", msg.Token, "filename", msg.Filename)
+				event.Peer.UploadDenied(msg.Filename, "File read error.")
+			}
+
+		// incoming file search response
 		case FileSearchResponse:
 			msg := event.Data.(FileSearchData)
 			manager.mu.Lock()

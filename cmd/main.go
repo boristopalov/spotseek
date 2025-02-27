@@ -1,16 +1,20 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"spotseek/config"
 	"spotseek/logging"
+	"spotseek/slsk/api"
 	"spotseek/slsk/client"
 	"spotseek/slsk/tui"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/go-chi/chi/v5"
 )
 
 type ContextKey string
@@ -35,14 +39,18 @@ func (c *CLI) Run(args []string) error {
 
 	command := args[0]
 	switch command {
-	// case "serve":
-	// log := logging.GetLogger()
-	// slskClient := client.NewSlskClient("server.slsknet.org", 2242)
-	// err := slskClient.Connect(config.SOULSEEK_USERNAME, config.SOULSEEK_PASSWORD)
-	// if err != nil {
-	// 	logging.LogFatal(log, "Failed to connect to soulseek", "err", err)
-	// }
-	// return startServer(slskClient)
+	case "serve":
+		logger := logging.NewHandler(&slog.HandlerOptions{
+			Level:     slog.LevelInfo,
+			AddSource: false,
+		}, os.Stdout)
+		log := slog.New(logger)
+		slskClient := client.NewSlskClient("server.slsknet.org", 2242, log)
+		err := slskClient.Connect(config.SOULSEEK_USERNAME, config.SOULSEEK_PASSWORD)
+		if err != nil {
+			logging.LogFatal(log, "Failed to connect to soulseek", "err", err)
+		}
+		return startServer(slskClient)
 
 	case "tui":
 		logFile, err := os.OpenFile("spotseek.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -86,27 +94,27 @@ func (c *CLI) Run(args []string) error {
 	}
 }
 
-// func startServer(slskClient *client.SlskClient) error {
-// 	mux := chi.NewRouter()
+func startServer(slskClient *client.SlskClient) error {
+	mux := chi.NewRouter()
 
-// 	mux.Use(func(next http.Handler) http.Handler {
-// 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-// 			ctx := r.Context()
-// 			ctx = context.WithValue(ctx, SlskClientKey, slskClient)
-// 			next.ServeHTTP(w, r.WithContext(ctx))
-// 		})
-// 	})
+	mux.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			ctx = context.WithValue(ctx, SlskClientKey, slskClient)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	})
 
-// 	mux.Get("/connect/user/{username}/conn/{connType}", api.ConnectToPeer)
-// 	mux.Get("/search", api.Search)
-// 	mux.Get("/download", api.Download)
-// 	mux.Get("/join", api.JoinRoom)
-// 	mux.Get("/slsk-client", api.GetSlskClient)
-// 	mux.Get("/check-port", api.CheckPort)
+	mux.Get("/connect/user/{username}/conn/{connType}", api.ConnectToPeer)
+	mux.Get("/search", api.Search)
+	mux.Get("/download", api.Download)
+	mux.Get("/join", api.JoinRoom)
+	mux.Get("/slsk-client", api.GetSlskClient)
+	mux.Get("/check-port", api.CheckPort)
 
-// 	fmt.Println("Starting HTTP server on localhost:3000")
-// 	return http.ListenAndServe("localhost:3000", mux)
-// }
+	fmt.Println("Starting HTTP server on localhost:3000")
+	return http.ListenAndServe("localhost:3000", mux)
+}
 
 func main() {
 	cli := &CLI{

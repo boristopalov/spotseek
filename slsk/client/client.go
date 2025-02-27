@@ -70,14 +70,15 @@ type SlskClient struct {
 	JoinedRooms                         map[string]*Room // room name --> users in room
 	PeerManager                         *peer.PeerManager
 	PeerEventCh                         chan peer.PeerEvent
-	FileManager                         *fileshare.FileShareManager
 	logger                              *slog.Logger
+	shares                              *fileshare.Shared
 }
 
 func NewSlskClient(host string, port int, logger *slog.Logger) *SlskClient {
 	if logger == nil {
 		return nil
 	}
+	shares := fileshare.NewShared(config.GetSettings(), logger)
 	peerEventCh := make(chan peer.PeerEvent)
 	return &SlskClient{
 		Host:                                host,
@@ -88,16 +89,16 @@ func NewSlskClient(host string, port int, logger *slog.Logger) *SlskClient {
 		PendingOutgoingPeerConnectionTokens: make(map[uint32]PendingTokenConn),
 		JoinedRooms:                         make(map[string]*Room),
 		PeerEventCh:                         peerEventCh,
-		PeerManager:                         peer.NewPeerManager(peerEventCh, logger),
+		PeerManager:                         peer.NewPeerManager(peerEventCh, shares, logger),
 		logger:                              logger,
+		shares:                              shares,
 	}
 }
 
 // Connect to soulseek server and login
 func (c *SlskClient) Connect(username, pw string) error {
 	// Set up our shared files
-	shares := fileshare.NewShared(config.GetSettings(), c.logger)
-	stats := shares.GetShareStats()
+	stats := c.shares.GetShareStats()
 	c.logger.Info("share stats", "stats", stats)
 
 	dialer := &net.Dialer{
@@ -121,9 +122,6 @@ func (c *SlskClient) Connect(username, pw string) error {
 	c.User = username
 
 	c.SharedFoldersFiles(stats.TotalFolders, stats.TotalFiles)
-
-	// set up fileshare manager
-	c.FileManager = fileshare.NewFileShareManager(shares)
 
 	go c.ListenForServerMessages() // server messages sent to client
 	go c.ListenForIncomingPeers()  // peer init

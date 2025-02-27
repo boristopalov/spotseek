@@ -20,6 +20,7 @@ type Event int
 const (
 	PeerDisconnected Event = iota
 	FileSearchResponse
+	FileSearchRequest
 	FolderContentsRequest
 	PlaceInQueueResponse
 	DistribSearch
@@ -96,6 +97,11 @@ type BranchLevelMessage struct {
 
 type BranchRootMessage struct {
 	BranchRootUsername string
+}
+
+type FileSearchRequestMessage struct {
+	Token    uint32
+	Filename string
 }
 
 func (p *Peer) SendMessage(msg []byte) error {
@@ -521,6 +527,9 @@ func (peer *Peer) QueueUpload(filename string) {
 func (peer *Peer) handleQueueUpload(reader *messages.MessageReader) (map[string]interface{}, error) {
 	filename := reader.ReadString()
 	token := rand.Uint32()
+
+	// Search for the file first
+	peer.mgrCh <- PeerEvent{Type: FileSearchRequest, Peer: peer, Data: FileSearchRequestMessage{Token: token, Filename: filename}}
 
 	peer.TransferRequest(1, token, filename, 0)
 
