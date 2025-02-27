@@ -29,6 +29,7 @@ type ShareStats struct {
 
 // SharedFile represents a file in the shared system
 type SharedFile struct {
+	Dir         string
 	Key         string
 	Value       FileInfo
 	VirtualPath string
@@ -42,6 +43,7 @@ type FileInfo struct {
 	DurationSeconds uint   // Duration in seconds
 	SampleRate      uint   // Sample rate in Hz
 	BitDepth        uint   // Bit depth
+	Extension       string // File extension
 }
 
 // Shared manages the collection of shared files
@@ -146,7 +148,9 @@ func (s *Shared) RefreshShares() error {
 				)
 				return err
 			}
+			// Add file to the shared files list with the correct directory
 			f := SharedFile{
+				Dir:         shareLinksDir,
 				Key:         relPath,
 				Value:       fileInfo,
 				VirtualPath: symlinkPath,
@@ -223,7 +227,7 @@ func getAudioMetadata(path string) (FileInfo, error) {
 	if !validExts[ext] {
 		return info, fmt.Errorf("file is not a supported audio format: %s", ext)
 	}
-
+	info.Extension = ext
 	info.Size = stat.Size()
 
 	props, err := taglib.ReadProperties(path)

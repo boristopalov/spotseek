@@ -166,6 +166,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) AddDownload(username string, filename string) {
+	// Check if this file is already being downloaded
+	for _, d := range m.downloads {
+		if d.Username == username && d.Filename == filename {
+			// File is already in download queue, don't add it again
+			return
+		}
+	}
+
 	// Add to downloads list
 	download := DownloadRow{
 		Username: username,
@@ -177,9 +185,24 @@ func (m *model) AddDownload(username string, filename string) {
 
 	// Update download table
 	m.updateDownloadTableRows()
+	// return
 
 	// Request the download from the peer
-	m.client.PeerManager.GetPeer(username).QueueUpload(filename)
+	go func() {
+		peer := m.client.PeerManager.GetPeer(username)
+		if peer != nil {
+			peer.QueueUpload(filename)
+		} else {
+			// Update status if peer not found
+			for i, d := range m.downloads {
+				if d.Username == username && d.Filename == filename {
+					m.downloads[i].Status = "Error: Peer not found"
+					m.updateDownloadTableRows()
+					break
+				}
+			}
+		}
+	}()
 }
 
 func (m *model) updateDownloadTableRows() {

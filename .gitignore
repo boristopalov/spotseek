@@ -2,3 +2,4 @@ src/.DS_STORE
 spotseek
 .env
 .DS_STORE
+*.log

@@ -19,9 +19,10 @@ type Directory struct {
 }
 
 type File struct {
-	Name      string `json:"name"`
-	Size      uint64 `json:"size"`
-	BitRate   uint32 `json:"bitRate"`
-	Extension string `json:"extension"`
-	Duration  uint32 `json:"duration"`
+	Name       string `json:"name"`
+	Size       uint64 `json:"size"`
+	BitRate    uint32 `json:"bitRate"`
+	Extension  string `json:"extension"`
+	Duration   uint32 `json:"duration"`
+	SampleRate uint32 `json:"sampleRate"`
 }

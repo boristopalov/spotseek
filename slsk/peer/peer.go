@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net"
-	"runtime/debug"
 	"spotseek/slsk/messages"
 	"spotseek/slsk/shared"
 	"sync"
@@ -20,9 +19,10 @@ type Event int
 const (
 	PeerDisconnected Event = iota
 	FileSearchResponse
-	FileSearchRequest
+	SharedFileListRequest
 	FolderContentsRequest
 	PlaceInQueueResponse
+	UploadRequest
 	DistribSearch
 	BranchLevel
 	BranchRoot
@@ -63,6 +63,7 @@ type FolderContentsData struct {
 	Token      uint32
 }
 
+type SharedFileListMessage struct{}
 type FileSearchData struct {
 	Token   uint32
 	Results shared.SearchResult
@@ -99,7 +100,7 @@ type BranchRootMessage struct {
 	BranchRootUsername string
 }
 
-type FileSearchRequestMessage struct {
+type UploadRequestMessage struct {
 	Token    uint32
 	Filename string
 }
@@ -133,7 +134,7 @@ func (peer *Peer) Listen() {
 			n, err := peer.PeerConnection.Read(readBuffer)
 			if err != nil {
 				if err == io.EOF {
-					peer.logger.Error("Peer closed the connection",
+					peer.logger.Warn("Peer closed the connection",
 						"peer", peer.Username)
 					return
 				}
@@ -180,7 +181,7 @@ func (peer *Peer) processMessage(data []byte, messageLength uint32) ([]byte, uin
 					"error", r,
 				)
 				// Optionally log the stack trace
-				debug.PrintStack()
+				// debug.PrintStack()
 			}
 		}()
 
@@ -217,6 +218,8 @@ func (peer *Peer) handleMessage(messageData []byte, messageLength uint32) error 
 	var decoded map[string]interface{}
 	var err error
 	switch code {
+	case 4:
+		decoded, err = peer.handleGetSharedFileList(reader)
 	case 5:
 		decoded, err = peer.handleSharedFileListResponse(reader, messageLength)
 	case 9:
@@ -253,6 +256,16 @@ func (peer *Peer) handleMessage(messageData []byte, messageLength uint32) error 
 		"message", decoded,
 		"peer", peer.Username)
 	return nil
+}
+
+func (peer *Peer) handleGetSharedFileList(reader *messages.MessageReader) (map[string]interface{}, error) {
+	peer.mgrCh <- PeerEvent{
+		Type: SharedFileListRequest,
+		Peer: peer,
+		Data: SharedFileListMessage{},
+	}
+
+	return nil, nil
 }
 
 func (peer *Peer) handleSharedFileListResponse(reader *messages.MessageReader, messageLength uint32) (map[string]interface{}, error) {
@@ -386,22 +399,25 @@ func (peer *Peer) handleFileSearchResponse(reader *messages.MessageReader, messa
 		extension := decompressedReader.ReadString() // extension (always blank in Qt)
 		attributeCount := decompressedReader.ReadInt32()
 
-		var bitrate, duration uint32
+		var bitrate, duration, sampleRate uint32
 		for j := 0; j < int(attributeCount); j++ {
 			attrType := decompressedReader.ReadInt32()
 			if attrType == 0 {
 				bitrate = decompressedReader.ReadInt32()
 			} else if attrType == 1 {
 				duration = decompressedReader.ReadInt32()
+			} else if attrType == 4 {
+				sampleRate = decompressedReader.ReadInt32()
 			}
 		}
 
 		result.PublicFiles[i] = shared.File{
-			Name:      filename,
-			Size:      size,
-			BitRate:   bitrate,
-			Duration:  duration,
-			Extension: extension,
+			Name:       filename,
+			Size:       size,
+			BitRate:    bitrate,
+			Duration:   duration,
+			SampleRate: sampleRate,
+			Extension:  extension,
 		}
 	}
 
@@ -466,8 +482,8 @@ func (peer *Peer) handleTransferRequest(reader *messages.MessageReader) (map[str
 	// Tell the peer we're ready to receive
 	// We expect to recieve an "F" connection after this
 	// See slsk/client/listener.go for handling "F" connections
-	peer.TransferResponse(token, true, uint64(filesize))
 	peer.downloadFileCh <- struct{}{}
+	peer.TransferResponse(token, true, uint64(filesize))
 
 	return map[string]interface{}{
 		"type":   "TransferRequest",
@@ -529,7 +545,7 @@ func (peer *Peer) handleQueueUpload(reader *messages.MessageReader) (map[string]
 	token := rand.Uint32()
 
 	// Search for the file first
-	peer.mgrCh <- PeerEvent{Type: FileSearchRequest, Peer: peer, Data: FileSearchRequestMessage{Token: token, Filename: filename}}
+	peer.mgrCh <- PeerEvent{Type: UploadRequest, Peer: peer, Data: UploadRequestMessage{Token: token, Filename: filename}}
 
 	peer.TransferRequest(1, token, filename, 0)
 

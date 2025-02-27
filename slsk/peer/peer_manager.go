@@ -1,6 +1,8 @@
 package peer
 
 import (
+	"bytes"
+	"compress/zlib"
 	"fmt"
 	"log/slog"
 	"net"
@@ -145,10 +147,54 @@ func (manager *PeerManager) listenForEvents() {
 			manager.RemovePeer(event.Peer)
 			manager.mu.Unlock()
 
+		case SharedFileListRequest:
+			manager.logger.Info("Received shared file list request", "peer", event.Peer.Username)
+			// construct a message with our shared file list (SharedFileListResponse)
+			mb := messages.NewMessageBuilder()
+			mb.AddInt32(manager.shares.GetShareStats().TotalFolders)
+
+			// currently only one directory
+			mb.AddString(manager.shares.Files[0].Dir)
+			mb.AddInt32(manager.shares.GetShareStats().TotalFiles)
+
+			for _, file := range manager.shares.Files {
+				mb.AddInt8(1) // Code - value is always 1
+				mb.AddString(file.Key)
+				mb.AddInt64(uint64(file.Value.Size))
+				mb.AddString(file.Value.Extension)
+
+				mb.AddInt32(3) // 3 file attributes
+
+				// Bitrate
+				mb.AddInt32(0) // code 0
+				mb.AddInt32(uint32(file.Value.BitRate))
+
+				// Duration
+				mb.AddInt32(1) // code 1
+				mb.AddInt32(uint32(file.Value.DurationSeconds))
+
+				// Sample rate
+				mb.AddInt32(4) // code 4
+				mb.AddInt32(uint32(file.Value.SampleRate))
+			}
+			mb.AddInt32(0) // unknown
+			mb.AddInt32(0) // private diectories
+
+			// zlib compress
+			var compressedData bytes.Buffer
+			zlibWriter := zlib.NewWriter(&compressedData)
+			zlibWriter.Write(mb.Message)
+			zlibWriter.Close()
+			mb.Message = compressedData.Bytes()
+
+			// Send SharedFileListResponse
+			msg := mb.Build(5)
+			event.Peer.SendMessage(msg)
+
 		// incoming file search request
-		case FileSearchRequest:
-			msg := event.Data.(FileSearchRequestMessage)
-			manager.logger.Info("Received file search request", "peer", event.Peer.Username, "token", msg.Token, "filename", msg.Filename)
+		case UploadRequest:
+			msg := event.Data.(UploadRequestMessage)
+			manager.logger.Info("Received upload request", "peer", event.Peer.Username, "token", msg.Token, "filename", msg.Filename)
 			res := manager.shares.Search(msg.Filename)
 			if len(res) > 0 {
 				manager.logger.Info("Sending file search response", "peer", event.Peer.Username, "token", msg.Token, "filename", msg.Filename, "results", res)
