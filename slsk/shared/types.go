@@ -1,12 +1,12 @@
 package shared
 
 type SearchResult struct {
-	Username    string `json:"username"`
-	Token       uint32 `json:"token"`
-	PublicFiles []File `json:"publicFiles"`
-	SlotFree    uint8  `json:"slotFree"`
-	AvgSpeed    uint32 `json:"avgSpeed"`
-	QueueLength uint32 `json:"queueLength"`
+	Username      string `json:"username"`
+	Token         uint32 `json:"token"`
+	PublicFiles   []File `json:"publicFiles"`
+	SlotFree      uint8  `json:"slotFree"`
+	AvgSpeed      uint32 `json:"avgSpeed"`
+	QueuePosition uint32 `json:"queuePosition"`
 }
 
 type SharedFileList struct {

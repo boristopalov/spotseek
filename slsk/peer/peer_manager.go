@@ -40,8 +40,8 @@ func NewPeerManager(eventChan chan<- PeerEvent, shares *fileshare.Shared, logger
 
 func (manager *PeerManager) RemovePeer(peer *Peer) {
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
 	delete(manager.peers, peer.Username)
+	manager.mu.Unlock()
 }
 
 // for outgoing connection attempts
@@ -49,6 +49,14 @@ func (manager *PeerManager) ConnectToPeer(host string, port uint32, username str
 	peer := manager.AddPeer(username, connType, host, port, token, privileged)
 	if peer == nil {
 		return fmt.Errorf("cannot connect to user %s with connType %s", username, connType)
+	}
+
+	if peer.ConnType == "F" {
+		peer.logger.Info("Listening for file transfer", "peer", peer.Username)
+		filePeer := NewFileTransferPeer(peer)
+		peer.PierceFirewall(peer.Token)
+		go filePeer.FileListen()
+		return nil
 	}
 
 	err := peer.PierceFirewall(peer.Token)
@@ -80,7 +88,22 @@ func (manager *PeerManager) AddPeer(username string, connType string, ip string,
 			manager.logger.Warn("peer already connected", "peer", peer)
 			return nil
 		}
+
+		peer.mu.Lock()
 		peer.ConnType = connType
+		peer.Token = token
+		peer.mu.Unlock()
+
+		// close the existing connection
+		peer.Close()
+		// open a new connection
+		c, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", ip, port), 10*time.Second)
+		if err != nil {
+			return nil
+		}
+		peer.mu.Lock()
+		peer.PeerConnection = &shared.Connection{Conn: c}
+		peer.mu.Unlock()
 		return peer
 	}
 
@@ -89,10 +112,11 @@ func (manager *PeerManager) AddPeer(username string, connType string, ip string,
 		return nil
 	}
 
+	// only update the peer if it doesn't exist
+	// that way we don't lose track of any pending transfers
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
 	manager.peers[username] = peer
-	manager.logger.Info("connected to peer", "peer", peer)
+	manager.mu.Unlock()
 	return peer
 }
 
@@ -140,15 +164,11 @@ func (manager *PeerManager) listenForEvents() {
 	for event := range manager.peerCh {
 		switch event.Type {
 		case PeerDisconnected:
-			manager.logger.Warn("Stopped listening for messages from peer",
-				"peer", event.Peer.Username)
 			event.Peer.Close()
-			manager.mu.Lock()
 			manager.RemovePeer(event.Peer)
-			manager.mu.Unlock()
 
 		case SharedFileListRequest:
-			manager.logger.Info("Received shared file list request", "peer", event.Peer.Username)
+			// manager.logger.Info("Received shared file list request", "peer", event.Peer.Username)
 			// construct a message with our shared file list (SharedFileListResponse)
 			mb := messages.NewMessageBuilder()
 			mb.AddInt32(manager.shares.GetShareStats().TotalFolders)
@@ -194,24 +214,19 @@ func (manager *PeerManager) listenForEvents() {
 		// incoming file search request
 		case UploadRequest:
 			msg := event.Data.(UploadRequestMessage)
-			manager.logger.Info("Received upload request", "peer", event.Peer.Username, "token", msg.Token, "filename", msg.Filename)
+			// manager.logger.Info("Received upload request", "peer", event.Peer.Username, "token", msg.Token, "filename", msg.Filename)
 			res := manager.shares.Search(msg.Filename)
 			if len(res) > 0 {
-				manager.logger.Info("Sending file search response", "peer", event.Peer.Username, "token", msg.Token, "filename", msg.Filename, "results", res)
 				event.Peer.TransferRequest(1, msg.Token, res[0].Key, uint64(res[0].Value.Size))
 			} else {
-				manager.logger.Info("Sending file search denied", "peer", event.Peer.Username, "token", msg.Token, "filename", msg.Filename)
 				event.Peer.UploadDenied(msg.Filename, "File read error.")
 			}
 
 		// incoming file search response
 		case FileSearchResponse:
 			msg := event.Data.(FileSearchData)
-			manager.mu.Lock()
 			manager.SearchResults[msg.Token] =
 				append(manager.SearchResults[msg.Token], msg.Results)
-			manager.mu.Unlock()
-
 			manager.clientCh <- event
 
 		// Distributed Messages

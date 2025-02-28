@@ -64,96 +64,99 @@ func (c *SlskClient) handleServerMessage(messageData []byte) {
 		}
 	}()
 
-	// var decoded map[string]interface{}
-	// var err error
+	var decoded map[string]any
+	var err error
 	code := mr.ReadInt32()
 	switch code {
 	case 1:
-		c.HandleLogin(mr)
+		decoded, err = c.HandleLogin(mr)
 	case 3:
-		c.HandleGetPeerAddress(mr)
+		decoded, err = c.HandleGetPeerAddress(mr)
 	case 5:
-		c.HandleAddUser(mr)
+		decoded, err = c.HandleAddUser(mr)
 	case 7:
-		c.HandleGetUserStatus(mr)
+		decoded, err = c.HandleGetUserStatus(mr)
 	case 13:
-		c.HandleSayChatroom(mr)
+		decoded, err = c.HandleSayChatroom(mr)
 	case 14:
-		c.HandleJoinRoom(mr)
+		decoded, err = c.HandleJoinRoom(mr)
 	case 15:
-		c.HandleLeaveRoom(mr)
+		decoded, err = c.HandleLeaveRoom(mr)
 	case 16:
-		c.HandleUserJoinedRoom(mr)
+		decoded, err = c.HandleUserJoinedRoom(mr)
 	case 17:
-		c.HandleUserLeftRoom(mr)
+		decoded, err = c.HandleUserLeftRoom(mr)
 	case 18:
-		c.HandleConnectToPeer(mr)
+		decoded, err = c.HandleConnectToPeer(mr)
 	case 22:
-		c.HandleMessageUser(mr)
+		decoded, err = c.HandleMessageUser(mr)
 	case 26:
-		c.HandleFileSearch(mr)
+		decoded, err = c.HandleFileSearch(mr)
 	case 36:
-		c.HandleGetUserStats(mr)
+		decoded, err = c.HandleGetUserStats(mr)
 	case 41:
-		c.HandleRelog(mr)
+		decoded, err = c.HandleRelog(mr)
 	case 64:
-		c.HandleRoomList(mr)
+		decoded, err = c.HandleRoomList(mr)
 	case 69:
-		c.HandlePrivilegedUsers(mr)
+		decoded, err = c.HandlePrivilegedUsers(mr)
 	case 83:
-		c.HandleParentMinSpeed(mr)
+		decoded, err = c.HandleParentMinSpeed(mr)
 	case 84:
-		c.HandleParentSpeedRatio(mr)
+		decoded, err = c.HandleParentSpeedRatio(mr)
 	case 92:
-		c.HandleCheckPrivileges(mr)
+		decoded, err = c.HandleCheckPrivileges(mr)
 	case 93:
-		c.HandleSearchRequest(mr)
+		decoded, err = c.HandleSearchRequest(mr)
 	case 102:
-		c.HandlePossibleParents(mr)
+		decoded, err = c.HandlePossibleParents(mr)
 	case 104:
-		c.HandleWishlistInterval(mr)
+		decoded, err = c.HandleWishlistInterval(mr)
 	case 113:
-		c.HandleRoomTickerState(mr)
+		decoded, err = c.HandleRoomTickerState(mr)
 	case 114:
-		c.HandleRoomTickerAdd(mr)
+		decoded, err = c.HandleRoomTickerAdd(mr)
 	case 115:
-		c.HandleRoomTickerRemove(mr)
+		decoded, err = c.HandleRoomTickerRemove(mr)
 	case 133:
-		c.HandlePrivateRoomUsers(mr)
+		decoded, err = c.HandlePrivateRoomUsers(mr)
 	case 134:
-		c.HandlePrivateRoomAddUser(mr)
+		decoded, err = c.HandlePrivateRoomAddUser(mr)
 	case 135:
-		c.HandlePrivateRoomRemoveUser(mr)
+		decoded, err = c.HandlePrivateRoomRemoveUser(mr)
 	case 139:
-		c.HandlePrivateRoomAdded(mr)
+		decoded, err = c.HandlePrivateRoomAdded(mr)
 	case 140:
-		c.HandlePrivateRoomRemoved(mr)
+		decoded, err = c.HandlePrivateRoomRemoved(mr)
 	case 141:
-		c.HandlePrivateRoomToggle(mr)
+		decoded, err = c.HandlePrivateRoomToggle(mr)
 	case 142:
-		c.HandleChangePassword(mr)
+		decoded, err = c.HandleChangePassword(mr)
 	case 143:
-		c.HandlePrivateRoomAddOperator(mr)
+		decoded, err = c.HandlePrivateRoomAddOperator(mr)
 	case 144:
-		c.HandlePrivateRoomRemoveOperator(mr)
+		decoded, err = c.HandlePrivateRoomRemoveOperator(mr)
 	case 145:
-		c.HandlePrivateRoomOperatorAdded(mr)
+		decoded, err = c.HandlePrivateRoomOperatorAdded(mr)
 	case 146:
-		c.HandlePrivateRoomOperatorRemoved(mr)
+		decoded, err = c.HandlePrivateRoomOperatorRemoved(mr)
 	case 148:
-		c.HandlePrivateRoomOwned(mr)
+		decoded, err = c.HandlePrivateRoomOwned(mr)
 	case 160:
-		c.HandleExcludedSearchPhrases(mr)
+		decoded, err = c.HandleExcludedSearchPhrases(mr)
 	case 1001:
-		c.HandleCantConnectToPeer(mr)
+		decoded, err = c.HandleCantConnectToPeer(mr)
 	default:
 		c.logger.Error("invalid code", "code", code)
 	}
-	// log.Info("received message from server", "code", code, "message", decoded)
+	if err != nil {
+		c.logger.Error("error handling server message", "code", code, "err", err)
+	}
+	c.logger.Info("received message from server", "code", code, "message", decoded)
 }
 
-func (c *SlskClient) HandleLogin(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleLogin(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	success := mr.ReadBool()
 	c.logger.Info("Login success status", "success", success)
 	if !success {
@@ -169,8 +172,8 @@ func (c *SlskClient) HandleLogin(mr *messages.MessageReader) (map[string]interfa
 
 // Typically, to connect to a peer, we send a ConnectToPeer and GetPeerAddress
 // When we get ip and port info of peer here, we attempt a direct connection request
-func (c *SlskClient) HandleGetPeerAddress(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleGetPeerAddress(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	username := mr.ReadString()
 	host := mr.ReadIp()
 	port := mr.ReadInt32()
@@ -192,8 +195,8 @@ func (c *SlskClient) HandleGetPeerAddress(mr *messages.MessageReader) (map[strin
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleAddUser(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleAddUser(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	username := mr.ReadString()
 	exists := mr.ReadInt8()
 	decoded["type"] = "AddUser"
@@ -210,8 +213,8 @@ func (c *SlskClient) HandleAddUser(mr *messages.MessageReader) (map[string]inter
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleGetUserStatus(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleGetUserStatus(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "getUserStatus"
 	decoded["username"] = mr.ReadString()
 	decoded["status"] = mr.ReadInt32()
@@ -219,8 +222,8 @@ func (c *SlskClient) HandleGetUserStatus(mr *messages.MessageReader) (map[string
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleSayChatroom(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleSayChatroom(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "sayChatroom"
 	decoded["room"] = mr.ReadString()
 	decoded["username"] = mr.ReadString()
@@ -228,8 +231,8 @@ func (c *SlskClient) HandleSayChatroom(mr *messages.MessageReader) (map[string]i
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleJoinRoom(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleJoinRoom(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "joinRoom"
 	name := mr.ReadString()
 	decoded["room"] = name
@@ -281,11 +284,11 @@ func (c *SlskClient) HandleJoinRoom(mr *messages.MessageReader) (map[string]inte
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleRoom(mr *messages.MessageReader) ([]map[string]interface{}, error) {
-	var rooms []map[string]interface{}
+func (c *SlskClient) HandleRoom(mr *messages.MessageReader) ([]map[string]any, error) {
+	var rooms []map[string]any
 	roomCount := mr.ReadInt32()
 	for i := uint32(0); i < roomCount; i++ {
-		room := make(map[string]interface{})
+		room := make(map[string]any)
 		roomName := mr.ReadString()
 		room["name"] = roomName
 		rooms = append(rooms, room)
@@ -297,8 +300,8 @@ func (c *SlskClient) HandleRoom(mr *messages.MessageReader) ([]map[string]interf
 	return rooms, nil
 }
 
-func (c *SlskClient) HandleRoomList(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleRoomList(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "RoomList"
 	publicRooms, _ := c.HandleRoom(mr)
 	ownedPrivate, _ := c.HandleRoom(mr)
@@ -309,15 +312,15 @@ func (c *SlskClient) HandleRoomList(mr *messages.MessageReader) (map[string]inte
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleLeaveRoom(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleLeaveRoom(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "leaveRoom"
 	decoded["room"] = mr.ReadString()
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleUserJoinedRoom(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleUserJoinedRoom(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "userJoinedRoom"
 
 	roomName := mr.ReadString()
@@ -365,8 +368,8 @@ func (c *SlskClient) HandleUserJoinedRoom(mr *messages.MessageReader) (map[strin
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleUserLeftRoom(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleUserLeftRoom(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	roomName := mr.ReadString()
 	username := mr.ReadString()
 	decoded["type"] = "userLeftRoom"
@@ -393,8 +396,8 @@ func (c *SlskClient) HandleUserLeftRoom(mr *messages.MessageReader) (map[string]
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleConnectToPeer(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleConnectToPeer(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "connectToPeer"
 	username := mr.ReadString()
 	connType := mr.ReadString()
@@ -418,8 +421,8 @@ func (c *SlskClient) HandleConnectToPeer(mr *messages.MessageReader) (map[string
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleMessageUser(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleMessageUser(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	id := mr.ReadInt32()
 	decoded["type"] = "messageUser"
 	decoded["id"] = id
@@ -432,8 +435,8 @@ func (c *SlskClient) HandleMessageUser(mr *messages.MessageReader) (map[string]i
 }
 
 // this is sent to us if a user is specifically searching our files
-func (c *SlskClient) HandleFileSearch(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleFileSearch(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "fileSearch"
 	decoded["username"] = mr.ReadString()
 	decoded["token"] = mr.ReadInt32()
@@ -441,14 +444,14 @@ func (c *SlskClient) HandleFileSearch(mr *messages.MessageReader) (map[string]in
 	return decoded, nil
 }
 
-func (c *SlskClient) HandlePing(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandlePing(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "ping"
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleGetUserStats(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleGetUserStats(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "getUserStats"
 	decoded["username"] = mr.ReadString()
 	decoded["speed"] = mr.ReadInt32()
@@ -458,14 +461,14 @@ func (c *SlskClient) HandleGetUserStats(mr *messages.MessageReader) (map[string]
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleRelog(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleRelog(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "relog"
 	return decoded, nil
 }
 
-func (c *SlskClient) HandlePrivilegedUsers(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandlePrivilegedUsers(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	var users []string
 	decoded["type"] = "privilegedUsers"
 
@@ -479,29 +482,29 @@ func (c *SlskClient) HandlePrivilegedUsers(mr *messages.MessageReader) (map[stri
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleParentMinSpeed(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleParentMinSpeed(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "parentMinSpeed"
 	decoded["minSpeed"] = mr.ReadInt32()
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleParentSpeedRatio(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleParentSpeedRatio(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "parentSpeedRatio"
 	decoded["ratio"] = mr.ReadInt32()
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleCheckPrivileges(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleCheckPrivileges(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "checkPrivileges"
 	decoded["timeLeft"] = mr.ReadInt32()
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleSearchRequest(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleSearchRequest(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "searchRequest"
 	decoded["distributedCode"] = mr.ReadInt8()
 	decoded["unknown"] = mr.ReadInt32()
@@ -513,14 +516,14 @@ func (c *SlskClient) HandleSearchRequest(mr *messages.MessageReader) (map[string
 
 // parents are all users with higher upload speed than us
 // max 10 parents at a time (why is it 4byte int?)
-func (c *SlskClient) HandlePossibleParents(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
-	var parents []map[string]interface{}
+func (c *SlskClient) HandlePossibleParents(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
+	var parents []map[string]any
 	decoded["type"] = "possibleParents"
 
 	parentCount := mr.ReadInt32()
 	for i := uint32(0); i < parentCount; i++ {
-		parent := make(map[string]interface{})
+		parent := make(map[string]any)
 		username := mr.ReadString()
 		host := mr.ReadIp()
 		port := mr.ReadInt32()
@@ -548,20 +551,20 @@ func (c *SlskClient) HandlePossibleParents(mr *messages.MessageReader) (map[stri
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleWishlistInterval(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleWishlistInterval(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "wishlistInterval"
 	decoded["interval"] = mr.ReadInt32()
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleRoomTickerState(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleRoomTickerState(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "roomTickerState"
 	decoded["room"] = mr.ReadString()
 
 	userCount := mr.ReadInt32()
-	users := make(map[string]interface{})
+	users := make(map[string]any)
 	for i := uint32(0); i < userCount; i++ {
 		username := mr.ReadString()
 		ticker := mr.ReadString()
@@ -572,8 +575,8 @@ func (c *SlskClient) HandleRoomTickerState(mr *messages.MessageReader) (map[stri
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleRoomTickerAdd(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleRoomTickerAdd(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "roomTickerAdd"
 	decoded["room"] = mr.ReadString()
 	decoded["username"] = mr.ReadString()
@@ -581,16 +584,16 @@ func (c *SlskClient) HandleRoomTickerAdd(mr *messages.MessageReader) (map[string
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleRoomTickerRemove(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleRoomTickerRemove(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "roomTickerRemove"
 	decoded["room"] = mr.ReadString()
 	decoded["username"] = mr.ReadString()
 	return decoded, nil
 }
 
-func (c *SlskClient) HandlePrivateRoomUsers(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandlePrivateRoomUsers(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "privateRoomUsers"
 	var users []string
 
@@ -603,82 +606,82 @@ func (c *SlskClient) HandlePrivateRoomUsers(mr *messages.MessageReader) (map[str
 	return decoded, nil
 }
 
-func (c *SlskClient) HandlePrivateRoomAddUser(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandlePrivateRoomAddUser(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "privateRoomAddUser"
 	decoded["room"] = mr.ReadString()
 	decoded["username"] = mr.ReadString()
 	return decoded, nil
 }
 
-func (c *SlskClient) HandlePrivateRoomRemoveUser(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandlePrivateRoomRemoveUser(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "privateRoomRemoveUser"
 	decoded["room"] = mr.ReadString()
 	decoded["username"] = mr.ReadString()
 	return decoded, nil
 }
 
-func (c *SlskClient) HandlePrivateRoomAdded(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandlePrivateRoomAdded(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "privateRoomAdded"
 	decoded["room"] = mr.ReadString()
 	return decoded, nil
 }
 
-func (c *SlskClient) HandlePrivateRoomRemoved(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandlePrivateRoomRemoved(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "privateRoomRemoved"
 	decoded["room"] = mr.ReadString()
 	return decoded, nil
 }
 
-func (c *SlskClient) HandlePrivateRoomToggle(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandlePrivateRoomToggle(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "privateRoomToggle"
 	decoded["enable"] = mr.ReadInt8()
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleChangePassword(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleChangePassword(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "changePassword"
 	decoded["password"] = mr.ReadString()
 	return decoded, nil
 }
 
-func (c *SlskClient) HandlePrivateRoomAddOperator(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandlePrivateRoomAddOperator(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "privateRoomAddOperator"
 	decoded["room"] = mr.ReadString()
 	decoded["username"] = mr.ReadString()
 	return decoded, nil
 }
 
-func (c *SlskClient) HandlePrivateRoomRemoveOperator(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandlePrivateRoomRemoveOperator(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "privateRoomRemoveOperator"
 	decoded["room"] = mr.ReadString()
 	decoded["username"] = mr.ReadString()
 	return decoded, nil
 }
 
-func (c *SlskClient) HandlePrivateRoomOperatorAdded(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandlePrivateRoomOperatorAdded(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "privateRoomOperatorAdded"
 	decoded["room"] = mr.ReadString()
 	return decoded, nil
 }
 
-func (c *SlskClient) HandlePrivateRoomOperatorRemoved(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandlePrivateRoomOperatorRemoved(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "privateRoomOperatorRemoved"
 	decoded["room"] = mr.ReadString()
 	return decoded, nil
 }
 
-func (c *SlskClient) HandlePrivateRoomOwned(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandlePrivateRoomOwned(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "privateRoomOwned"
 	decoded["room"] = mr.ReadString()
 	var operators []string
@@ -692,8 +695,8 @@ func (c *SlskClient) HandlePrivateRoomOwned(mr *messages.MessageReader) (map[str
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleCantConnectToPeer(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleCantConnectToPeer(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "cantConnectToPeer"
 	token := mr.ReadInt32()
 	username := mr.ReadString()
@@ -703,8 +706,8 @@ func (c *SlskClient) HandleCantConnectToPeer(mr *messages.MessageReader) (map[st
 	return decoded, nil
 }
 
-func (c *SlskClient) HandleExcludedSearchPhrases(mr *messages.MessageReader) (map[string]interface{}, error) {
-	decoded := make(map[string]interface{})
+func (c *SlskClient) HandleExcludedSearchPhrases(mr *messages.MessageReader) (map[string]any, error) {
+	decoded := make(map[string]any)
 	decoded["type"] = "excludedSearchPhrases"
 	numPhrases := mr.ReadInt32()
 	var excludedSearchPhrases []string

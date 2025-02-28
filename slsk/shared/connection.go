@@ -17,11 +17,5 @@ func (conn *Connection) SendMessage(message []byte) error {
 	if err != nil {
 		return err
 	}
-
-	// log.Info("sending message",
-	// 	"remoteAddr", conn.RemoteAddr().String(),
-	// 	"code", binary.LittleEndian.Uint32(message[4:8]),
-	// 	"length", binary.LittleEndian.Uint32(message[:4]),
-	// 	"message", string(message[8:]))
 	return nil
 }

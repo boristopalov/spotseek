@@ -62,7 +62,7 @@ func (c *CLI) Run(args []string) error {
 		// Create handler with the file as writer
 		fileHandler := logging.NewHandler(&slog.HandlerOptions{
 			Level:     slog.LevelInfo,
-			AddSource: false,
+			AddSource: true,
 		}, logFile)
 
 		log := slog.New(fileHandler)

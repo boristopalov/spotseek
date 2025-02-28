@@ -26,7 +26,7 @@ func (c *SlskClient) ListenForIncomingPeers() {
 		peerMsgReader := messages.NewMessageReader(message)
 		code := peerMsgReader.ReadInt8()
 
-		var decoded map[string]interface{}
+		var decoded map[string]any
 		switch code {
 		case 0:
 			decoded, err = c.handlePierceFirewall(peerConn, peerMsgReader)
@@ -64,12 +64,12 @@ func readPeerInitMessage(conn net.Conn) ([]byte, error) {
 	return message, nil
 }
 
-func (c *SlskClient) handlePierceFirewall(conn net.Conn, mr *messages.MessageReader) (map[string]interface{}, error) {
+func (c *SlskClient) handlePierceFirewall(conn net.Conn, mr *messages.MessageReader) (map[string]any, error) {
 	token := mr.ReadInt32()
 	usernameAndConnType, ok := c.PendingOutgoingPeerConnectionTokens[token]
 	if !ok {
 		c.logger.Error("No pending connection for token", "token", token)
-		return map[string]interface{}{
+		return map[string]any{
 			"token": token,
 		}, nil
 	}
@@ -87,13 +87,13 @@ func (c *SlskClient) handlePierceFirewall(conn net.Conn, mr *messages.MessageRea
 		return nil, fmt.Errorf("failed to connect to peer: %v", peer)
 	}
 	go peer.Listen()
-	return map[string]interface{}{
+	return map[string]any{
 		"token": token,
 	}, nil
 
 }
 
-func (c *SlskClient) handlePeerInit(conn net.Conn, mr *messages.MessageReader) (map[string]interface{}, error) {
+func (c *SlskClient) handlePeerInit(conn net.Conn, mr *messages.MessageReader) (map[string]any, error) {
 	username := mr.ReadString()
 	connType := mr.ReadString()
 	token := mr.ReadInt32()
@@ -106,7 +106,7 @@ func (c *SlskClient) handlePeerInit(conn net.Conn, mr *messages.MessageReader) (
 		return nil, fmt.Errorf("failed to connect to peer: %v", peer)
 	}
 	go peer.Listen()
-	return map[string]interface{}{
+	return map[string]any{
 		"username": username,
 		"connType": connType,
 		"token":    token,

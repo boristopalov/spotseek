@@ -2,87 +2,105 @@ package peer
 
 import (
 	"encoding/binary"
-	"fmt"
 	"io"
 	"os"
 	"path"
 	"spotseek/config"
 	"spotseek/slsk/messages"
+	"time"
 )
 
 type FileTransferPeer interface {
-	BasePeer
-	FileTransferInit(token uint32) error
-	FileOffset(offset uint64) error
+	FileTransferInit(token uint32)
+	FileOffset(offset uint64)
+	FileListen()
 }
 
-func (peer *Peer) FileTransferInit(token uint32) error {
+type fileTransferPeer struct {
+	Peer *Peer
+}
+
+func NewFileTransferPeer(peer *Peer) FileTransferPeer {
+	return &fileTransferPeer{
+		Peer: peer,
+	}
+}
+
+func (peer *fileTransferPeer) FileTransferInit(token uint32) {
 	mb := messages.NewMessageBuilder()
 	mb.AddInt32(token)
-	err := peer.SendMessage(mb.Message)
-	return err
+	peer.Peer.SendMessage(mb.Message)
 }
 
-func (peer *Peer) FileOffset(offset uint64) error {
+func (peer *fileTransferPeer) FileOffset(offset uint64) {
 	mb := messages.NewMessageBuilder()
 	mb.AddInt64(offset)
-	err := peer.SendMessage(mb.Message)
-	return err
+	peer.Peer.SendMessage(mb.Message)
 }
 
-func (peer *Peer) FileListen() error {
+func (peer *fileTransferPeer) FileListen() {
+
 	defer func() {
-		peer.mgrCh <- PeerEvent{Type: PeerDisconnected, Peer: peer}
+		peer.Peer.logger.Info("File transfer peer disconnected", "peer", peer.Peer.Username)
+		peer.Peer.mgrCh <- PeerEvent{Type: PeerDisconnected, Peer: peer.Peer}
 	}()
 
-	tokenBuf := make([]byte, 4)
-	if _, err := io.ReadFull(peer.PeerConnection, tokenBuf); err != nil {
-		return fmt.Errorf("failed to read transfer token: %w", err)
+	if peer.Peer.PeerConnection == nil {
+		peer.Peer.logger.Error("PeerConnection is nil")
+		return
 	}
+
+	// this might not work
+	peer.Peer.PeerConnection.Conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	tokenBuf := make([]byte, 4)
+	if _, err := peer.Peer.PeerConnection.Read(tokenBuf); err != nil {
+		peer.Peer.logger.Error("failed to read transfer token", "error", err)
+		return
+	}
+
 	token := binary.LittleEndian.Uint32(tokenBuf)
+	peer.Peer.logger.Info("File transfer token received", "token", token)
 
 	// Find the pending transfer associated with this token
-	peer.transfersMutex.Lock()
-	transfer, exists := peer.pendingTransfers[token]
-	peer.transfersMutex.RUnlock()
+	peer.Peer.transfersMutex.RLock()
+	transfer, exists := peer.Peer.pendingTransfers[token]
+	peer.Peer.transfersMutex.RUnlock()
 
 	if !exists {
-		return fmt.Errorf("no pending transfer found for token: %d", token)
+		peer.Peer.logger.Error("No pending transfer found for token", "token", token, "pendingTransfers", peer.Peer.pendingTransfers)
+		return
 	}
+	peer.Peer.logger.Info("File transfer found", "token", token)
 
-	offsetBuf := make([]byte, 8)
-	if _, err := io.ReadFull(peer.PeerConnection, offsetBuf); err != nil {
-		return fmt.Errorf("failed to read transfer token: %w", err)
-	}
-	offset := binary.LittleEndian.Uint64(offsetBuf)
-
-	peer.transfersMutex.Lock()
-	transfer.Offset = offset
-	peer.transfersMutex.RUnlock()
+	peer.FileOffset(transfer.Offset)
 
 	readBuffer := make([]byte, 4096)
 	for {
-		n, err := peer.PeerConnection.Read(readBuffer)
+		n, err := peer.Peer.PeerConnection.Read(readBuffer)
 		if err != nil {
 			if err == io.EOF {
-				peer.logger.Info("File transfer completed",
-					"peer", peer.Username,
+				peer.Peer.logger.Info("File transfer completed",
+					"peer", peer.Peer.Username,
 					"filename", transfer.Filename)
-				return nil
+				return
 			}
-			return fmt.Errorf("error reading file data: %w", err)
+			peer.Peer.logger.Error("error reading file data", "error", err)
+			return
+		}
+		peer.Peer.logger.Info("File transfer data received", "n", n)
+		// Write to transfer buffer
+		if _, err := transfer.Buffer.Write(readBuffer[:n]); err != nil {
+			peer.Peer.logger.Error("error writing to buffer", "error", err)
+			return
 		}
 
-		// Write to transfer buffer
-		peer.transfersMutex.Lock()
-		defer peer.transfersMutex.Unlock()
-		if _, err := transfer.Buffer.Write(readBuffer[:n]); err != nil {
-			return fmt.Errorf("error writing to buffer: %w", err)
-		}
+		transfer.Offset += uint64(n)
 
 		// Check if transfer is complete
 		if uint64(transfer.Buffer.Len()) >= transfer.Size {
-			return writeToDownloadsDir(transfer.Filename, transfer.Buffer.Bytes())
+			peer.Peer.logger.Info("File transfer complete", "filename", transfer.Filename)
+			writeToDownloadsDir(transfer.Filename, transfer.Buffer.Bytes())
+			return
 		}
 	}
 }

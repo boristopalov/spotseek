@@ -2,9 +2,11 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"spotseek/slsk/client"
 	"spotseek/slsk/peer"
 	"spotseek/slsk/shared"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -18,7 +20,9 @@ var baseStyle = lipgloss.NewStyle().
 
 type SearchResultRow struct {
 	Username   string
+	Path       string
 	Filename   string
+	Extension  string
 	Size       string
 	BitRate    string
 	SlotStatus string
@@ -27,6 +31,7 @@ type SearchResultRow struct {
 type DownloadRow struct {
 	Username string
 	Filename string
+	Path     string
 	Progress string
 	Status   string
 }
@@ -34,7 +39,7 @@ type DownloadRow struct {
 type model struct {
 	client        *client.SlskClient
 	searchInput   textinput.Model
-	table         table.Model
+	searchTable   table.Model
 	downloadTable table.Model
 	rows          []SearchResultRow
 	downloads     []DownloadRow
@@ -50,12 +55,14 @@ func NewModel(client *client.SlskClient) model {
 	columns := []table.Column{
 		{Title: "Username", Width: 20},
 		{Title: "Filename", Width: 40},
+		{Title: "Extension", Width: 10},
 		{Title: "Size", Width: 10},
 		{Title: "BitRate", Width: 10},
 		{Title: "Status", Width: 10},
+		{Title: "Path", Width: 40},
 	}
 
-	t := table.New(
+	st := table.New(
 		table.WithColumns(columns),
 		table.WithFocused(false),
 		table.WithHeight(10),
@@ -67,6 +74,7 @@ func NewModel(client *client.SlskClient) model {
 		{Title: "Size", Width: 10},
 		{Title: "Progress", Width: 10},
 		{Title: "Status", Width: 10},
+		{Title: "Path", Width: 40},
 	}
 
 	dt := table.New(
@@ -78,7 +86,7 @@ func NewModel(client *client.SlskClient) model {
 	return model{
 		client:        client,
 		searchInput:   ti,
-		table:         t,
+		searchTable:   st,
 		downloadTable: dt,
 		activeView:    "search",
 	}
@@ -102,12 +110,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.searchInput.Focused() {
 				// Move from search input to search results table
 				m.searchInput.Blur()
-				m.table.Focus()
+				m.searchTable.Focus()
 				return m, nil
-			} else if m.activeView == "search" && m.table.Focused() {
+			} else if m.activeView == "search" && m.searchTable.Focused() {
 				// Move from search results to downloads
 				m.activeView = "downloads"
-				m.table.Blur()
+				m.searchTable.Blur()
 				m.downloadTable.Focus()
 				return m, nil
 			} else {
@@ -127,26 +135,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.searchInput.Value() != "" {
 					m.client.FileSearch(m.searchInput.Value())
 					m.searchInput.Reset()
+
+					// clear search results
+					m.rows = nil
 				}
 			default:
 				// Pass other keys to the search input
 				m.searchInput, cmd = m.searchInput.Update(msg)
 				return m, cmd
 			}
-		} else if m.activeView == "search" && m.table.Focused() {
+		} else if m.activeView == "search" && m.searchTable.Focused() {
 			// When search results table is focused
 			switch msg.Type {
 			case tea.KeyEnter:
 				if len(m.rows) > 0 {
-					selectedRow := m.table.Cursor()
+					selectedRow := m.searchTable.Cursor()
 					if selectedRow < len(m.rows) {
 						row := m.rows[selectedRow]
-						m.AddDownload(row.Username, row.Filename)
+						m.AddDownload(row.Username, row.Filename, row.Path)
 					}
 				}
 			default:
 				// Pass other keys to the table
-				m.table, cmd = m.table.Update(msg)
+				m.searchTable, cmd = m.searchTable.Update(msg)
 				return m, cmd
 			}
 		} else if m.activeView == "downloads" && m.downloadTable.Focused() {
@@ -165,7 +176,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *model) AddDownload(username string, filename string) {
+func (m *model) AddDownload(username string, filename string, path string) {
 	// Check if this file is already being downloaded
 	for _, d := range m.downloads {
 		if d.Username == username && d.Filename == filename {
@@ -183,26 +194,26 @@ func (m *model) AddDownload(username string, filename string) {
 	}
 	m.downloads = append(m.downloads, download)
 
-	// Update download table
-	m.updateDownloadTableRows()
-	// return
-
 	// Request the download from the peer
-	go func() {
-		peer := m.client.PeerManager.GetPeer(username)
-		if peer != nil {
-			peer.QueueUpload(filename)
-		} else {
-			// Update status if peer not found
-			for i, d := range m.downloads {
-				if d.Username == username && d.Filename == filename {
-					m.downloads[i].Status = "Error: Peer not found"
-					m.updateDownloadTableRows()
-					break
-				}
+	peer := m.client.PeerManager.GetPeer(username)
+	if peer != nil {
+		peer.QueueUpload(path)
+		for i, d := range m.downloads {
+			if d.Username == username && d.Path == path {
+				m.downloads[i].Status = "Downloading..."
+				break
 			}
 		}
-	}()
+	} else {
+		// Update status if peer not found
+		for i, d := range m.downloads {
+			if d.Username == username && d.Path == path {
+				m.downloads[i].Status = "Error: Peer not found"
+				break
+			}
+		}
+	}
+	m.updateDownloadTableRows()
 }
 
 func (m *model) updateDownloadTableRows() {
@@ -213,6 +224,7 @@ func (m *model) updateDownloadTableRows() {
 			d.Filename,
 			d.Progress,
 			d.Status,
+			d.Path,
 		})
 	}
 	m.downloadTable.SetRows(tableRows)
@@ -224,19 +236,26 @@ func (m *model) updateTableRows() {
 		tableRows = append(tableRows, table.Row{
 			r.Username,
 			r.Filename,
+			r.Extension,
 			r.Size,
 			r.BitRate,
 			r.SlotStatus,
+			r.Path,
 		})
 	}
-	m.table.SetRows(tableRows)
+	m.searchTable.SetRows(tableRows)
 }
 
 func (m *model) UpdateResults(result shared.SearchResult) {
+
 	for _, file := range result.PublicFiles {
+		displayFilename := strings.ReplaceAll(file.Name, "\\", "/")
+		displayFilename = filepath.Base(displayFilename)
 		row := SearchResultRow{
 			Username:   result.Username,
-			Filename:   file.Name,
+			Filename:   displayFilename,
+			Path:       file.Name,
+			Extension:  file.Extension,
 			Size:       formatSize(file.Size),
 			BitRate:    fmt.Sprintf("%dkbps", file.BitRate),
 			SlotStatus: formatSlotStatus(result.SlotFree),
@@ -267,10 +286,10 @@ func (m model) View() string {
 		searchInputView = m.searchInput.View()
 	}
 
-	if m.activeView == "search" && m.table.Focused() {
-		searchTableView = activeStyle.Render(m.table.View())
+	if m.activeView == "search" && m.searchTable.Focused() {
+		searchTableView = activeStyle.Render(m.searchTable.View())
 	} else {
-		searchTableView = inactiveStyle.Render(m.table.View())
+		searchTableView = inactiveStyle.Render(m.searchTable.View())
 	}
 
 	if m.activeView == "downloads" && m.downloadTable.Focused() {
