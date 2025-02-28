@@ -40,10 +40,11 @@ func (c *CLI) Run(args []string) error {
 	command := args[0]
 	switch command {
 	case "serve":
-		logger := logging.NewHandler(&slog.HandlerOptions{
-			Level:     slog.LevelInfo,
-			AddSource: false,
-		}, os.Stdout)
+		logger := logging.NewHandler(nil, os.Stdout)
+		// logger := logging.NewHandler(&slog.HandlerOptions{
+		// 	Level:     slog.LevelInfo,
+		// 	AddSource: false,
+		// }, os.Stdout)
 		log := slog.New(logger)
 		slskClient := client.NewSlskClient("server.slsknet.org", 2242, log)
 		err := slskClient.Connect(config.SOULSEEK_USERNAME, config.SOULSEEK_PASSWORD)

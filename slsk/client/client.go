@@ -115,17 +115,14 @@ func (c *SlskClient) Connect(username, pw string) error {
 	c.ServerConnection = &shared.Connection{Conn: conn}
 	c.Listener = listener
 
-	c.Login(username, pw)
-	c.SetWaitPort(2234)
-	c.logger.Info("Established connection to Soulseek server")
-	c.logger.Info("Listening on port 2234")
 	c.User = username
-
-	c.SharedFoldersFiles(stats.TotalFolders, stats.TotalFiles)
 
 	go c.ListenForServerMessages() // server messages sent to client
 	go c.ListenForIncomingPeers()  // peer init
 
+	c.Login(username, pw) // see c.HandleLogin() for response handling
+	c.SetWaitPort(2234)
+	c.logger.Info("Listening on port 2234")
 	// go c.listenForPeerEvents() // peer manager events sent to client
 
 	// c.JoinRoom("nicotine")

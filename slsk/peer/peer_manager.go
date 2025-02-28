@@ -97,7 +97,7 @@ func (manager *PeerManager) AddPeer(username string, connType string, ip string,
 		// close the existing connection
 		peer.Close()
 		// open a new connection
-		c, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", ip, port), 10*time.Second)
+		c, err := net.DialTimeout("tcp", net.JoinHostPort(ip, fmt.Sprintf("%d", port)), 10*time.Second)
 		if err != nil {
 			return nil
 		}
@@ -121,7 +121,7 @@ func (manager *PeerManager) AddPeer(username string, connType string, ip string,
 }
 
 func newPeer(username string, connType string, token uint32, host string, port uint32, privileged uint8, peerCh chan<- PeerEvent, logger *slog.Logger) (*Peer, error) {
-	c, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host, port), 10*time.Second)
+	c, err := net.DialTimeout("tcp", net.JoinHostPort(host, fmt.Sprintf("%d", port)), 10*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("unable to establish connection to peer %s: %v", username, err)
 	} else {

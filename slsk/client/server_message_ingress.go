@@ -167,6 +167,13 @@ func (c *SlskClient) HandleLogin(mr *messages.MessageReader) (map[string]any, er
 	ip := mr.ReadInt32()
 	c.logger.Info("Greeting message", "message", greetingMessage)
 	c.logger.Info("IP from server", "message", ip)
+
+	c.logger.Info("Established connection to Soulseek server")
+
+	stats := c.shares.GetShareStats()
+	c.SharedFoldersFiles(stats.TotalFolders, stats.TotalFiles)
+	c.HaveNoParent(1)
+	c.SetStatus(2)
 	return decoded, nil
 }
 
@@ -185,7 +192,7 @@ func (c *SlskClient) HandleGetPeerAddress(mr *messages.MessageReader) (map[strin
 	}
 	peerInfo, found := c.PendingOutgoingPeerConnections[username]
 	if !found {
-		return decoded, fmt.Errorf("Np pending outgoing peer connection for user %s", username)
+		return decoded, fmt.Errorf("no pending outgoing peer connection for user %s", username)
 	}
 	go func() {
 		c.PeerManager.ConnectToPeer(host, port, username, peerInfo.connType, peerInfo.token, peerInfo.privileged)
@@ -533,6 +540,7 @@ func (c *SlskClient) HandlePossibleParents(mr *messages.MessageReader) (map[stri
 		parents = append(parents, parent)
 	}
 	decoded["parents"] = parents
+
 	go func() {
 		// Loop through parents and attempt connection
 		for _, parent := range parents {

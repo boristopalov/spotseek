@@ -6,8 +6,8 @@ import (
 )
 
 // Soulseek protocol required variables
-const VERSION = 182
-const MINOR = 157
+const VERSION = 160
+const MINOR = 17
 
 // token to increment for each search
 var SEARCH_TOKEN int32 = 2
@@ -102,8 +102,8 @@ func (mb *ServerMessageBuilder) PrivilegedUsers() []byte {
 	return mb.Build(69)
 }
 
-func (mb *ServerMessageBuilder) HaveNoParent(haveParent uint8) []byte {
-	mb.AddInt8(haveParent)
+func (mb *ServerMessageBuilder) HaveNoParent(haveNoParent uint8) []byte {
+	mb.AddInt8(haveNoParent)
 	return mb.Build(71)
 }
 
