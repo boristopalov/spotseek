@@ -1,22 +1,13 @@
 package client
 
 import (
+	"math/rand/v2"
 	"spotseek/slsk/messages"
 	"spotseek/slsk/shared"
 )
 
 func (c *SlskClient) Send(msg []byte) {
 	c.ServerConnection.SendMessage(msg)
-}
-
-func (c *SlskClient) NextConnectionToken() uint32 {
-	c.ConnectionToken = c.ConnectionToken + 1
-	return c.ConnectionToken
-}
-
-func (c *SlskClient) NextSearchToken() uint32 {
-	c.SearchToken = c.SearchToken + 1
-	return c.SearchToken
 }
 
 func (c *SlskClient) Login(username string, password string) {
@@ -44,36 +35,43 @@ func (c *SlskClient) SetWaitPort(port uint32) {
 func (c *SlskClient) GetPeerAddress(username string) {
 	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	msg := mb.GetPeerAddress(username)
+	c.logger.Info("Sending GetPeerAddress", "username", username)
 	c.Send(msg)
 }
 
 // Server forwards our query to the distributed network
 func (c *SlskClient) FileSearch(query string) {
 	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
-	t := c.NextSearchToken()
+	t := uint32(rand.Int32()) // rand.Int32() returns non-negative, this is safe
 	c.mu.Lock()
 	c.PeerManager.SearchResults[t] = make([]shared.SearchResult, 0)
 	c.mu.Unlock()
+	c.logger.Info("Sending FileSearch", "token", t, "query", query)
 	msg := mb.FileSearch(t, query)
 	c.Send(msg)
 }
 
-func (c *SlskClient) ConnectToPeer(username string, connType string) {
+func (c *SlskClient) ConnectToPeer(username string, connType string, token uint32) {
 	if peer := c.PeerManager.GetPeer(username); peer != nil {
 		return
 	}
-	token := c.NextConnectionToken()
+	var t uint32
+	if token == 0 {
+		t = uint32(rand.Int32()) // rand.Int32() returns non-negative, this is safe
+	} else {
+		t = token
+	}
 
-	c.logger.Info("Requesting indirect connection to user",
-		"token", token,
+	c.logger.Info("Sending ConnectToPeer",
+		"token", t,
 		"username", username,
 		"connType", connType,
 	)
 
-	c.AddPendingPeer(token, username, connType, 0)
+	c.AddPendingPeer(username, t, connType, 0)
 
 	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
-	msg := mb.ConnectToPeer(token, username, connType)
+	msg := mb.ConnectToPeer(t, username, connType)
 	c.Send(msg)
 
 	// Attempt to get IP of user so that we can send a direct connection request
@@ -83,18 +81,21 @@ func (c *SlskClient) ConnectToPeer(username string, connType string) {
 func (c *SlskClient) CantConnectToPeer(token uint32, username string) {
 	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	msg := mb.CantConnectToPeer(token, username)
+	c.logger.Info("Sending CantConnectToPeer", "token", token, "username", username)
 	c.Send(msg)
 }
 
 func (c *SlskClient) GetUserStatus(username string) {
 	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	msg := mb.GetUserStatus(username)
+	c.logger.Info("Sending GetUserStatus", "username", username)
 	c.Send(msg)
 }
 
 func (c *SlskClient) UserSearch(username string, query string) {
 	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
-	msg := mb.UserSearch(username, c.NextSearchToken(), query)
+	t := uint32(rand.Int32()) // rand.Int32() returns non-negative, this is safe
+	msg := mb.UserSearch(username, t, query)
 	c.Send(msg)
 }
 
@@ -127,11 +128,13 @@ func (c *SlskClient) HaveNoParent(haveNoParent uint8) {
 func (c *SlskClient) BranchLevel(branchLevel uint32) {
 	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	msg := mb.BranchLevel(branchLevel)
+	c.logger.Info("Sending BranchLevel", "branchLevel", branchLevel)
 	c.Send(msg)
 }
 
 func (c *SlskClient) BranchRoot(branchRoot string) {
 	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	msg := mb.BranchRoot(branchRoot)
+	c.logger.Info("Sending BranchRoot", "branchRoot", branchRoot)
 	c.Send(msg)
 }

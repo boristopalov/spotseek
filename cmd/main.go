@@ -46,7 +46,7 @@ func (c *CLI) Run(args []string) error {
 		// 	AddSource: false,
 		// }, os.Stdout)
 		log := slog.New(logger)
-		slskClient := client.NewSlskClient("server.slsknet.org", 2242, log)
+		slskClient := client.NewSlskClient(config.SOULSEEK_USERNAME, "server.slsknet.org", 2242, log)
 		err := slskClient.Connect(config.SOULSEEK_USERNAME, config.SOULSEEK_PASSWORD)
 		if err != nil {
 			logging.LogFatal(log, "Failed to connect to soulseek", "err", err)
@@ -69,7 +69,7 @@ func (c *CLI) Run(args []string) error {
 		log := slog.New(fileHandler)
 
 		// Set up soulseek client
-		slskClient := client.NewSlskClient("server.slsknet.org", 2242, log)
+		slskClient := client.NewSlskClient(config.SOULSEEK_USERNAME, "server.slsknet.org", 2242, log)
 		err = slskClient.Connect(config.SOULSEEK_USERNAME, config.SOULSEEK_PASSWORD)
 		if err != nil {
 			logging.LogFatal(log, "Failed to connect to soulseek", "err", err)
@@ -79,11 +79,11 @@ func (c *CLI) Run(args []string) error {
 		p := tea.NewProgram(tuiModel)
 
 		// Start event handling in background
-		go func() {
-			for event := range slskClient.PeerEventCh {
-				p.Send(event)
-			}
-		}()
+		// go func() {
+		// 	for event := range slskClient.PeerEventCh {
+		// 		p.Send(event)
+		// 	}
+		// }()
 
 		if _, err := p.Run(); err != nil {
 			return fmt.Errorf("error running tui: %w", err)

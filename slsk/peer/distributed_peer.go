@@ -36,7 +36,8 @@ func (peer *DistributedPeer) handleMessage(messageData []byte) error {
 	if err != nil {
 		peer.logger.Error("error handling distributed message", "error", err)
 	}
-	peer.logger.Info("received distributed message", "result", result)
+	var _ = result // satisfy the compiler
+	// peer.logger.Info("received distributed message", "result", result)
 	return err
 }
 
@@ -45,15 +46,12 @@ func (peer *DistributedPeer) handleSearch(mr *messages.MessageReader) (map[strin
 	username := mr.ReadString()
 	token := mr.ReadInt32()
 	query := mr.ReadString()
-	peer.mgrCh <- PeerEvent{
-		Type: DistribSearch,
-		Peer: peer.Peer,
-		Data: DistribSearchMessage{
-			Username: username,
-			Token:    token,
-			Query:    query,
-		},
+	peer.distribSearchCh <- DistribSearchMessage{
+		Username: username,
+		Token:    token,
+		Query:    query,
 	}
+	// peer.logger.Info("received DistributedSearchMessage", "username", username, "token", token, "query", query)
 	return map[string]any{
 		"type":     "Search",
 		"username": username,
@@ -69,8 +67,8 @@ func (peer *DistributedPeer) Search(username string, token uint32, query string)
 	mb.AddString(query)
 	mb.AddInt32(token)
 	msg := mb.Build(3)
+	peer.logger.Info("Sending DistributedSearchMessage", "username", username, "token", token, "query", query)
 	peer.SendMessage(msg)
-	peer.logger.Info("sent distributedsearch message", "username", username, "token", token, "query", query)
 	return map[string]any{
 		"type":     "Search",
 		"username": username,
@@ -89,6 +87,7 @@ func (peer *DistributedPeer) handleBranchLevel(mr *messages.MessageReader) (map[
 			BranchLevel: level,
 		},
 	}
+	peer.logger.Info("Received DistributedBranchLevelMessage", "level", level)
 	return map[string]any{
 		"type":  "BranchLevel",
 		"level": level,
@@ -100,7 +99,7 @@ func (peer *DistributedPeer) BranchLevel(branchLevel uint32) (map[string]any, er
 	mb.AddInt32(branchLevel)
 	msg := mb.Build(4)
 	peer.SendMessage(msg)
-	peer.logger.Info("sent distributed branch level message", "level", branchLevel)
+	peer.logger.Info("Sending DistributedBranchLevelMessage", "level", branchLevel)
 	return map[string]any{
 		"type":  "BranchLevel",
 		"level": branchLevel,
@@ -128,7 +127,7 @@ func (peer *DistributedPeer) BranchRoot(branchRoot string) (map[string]any, erro
 	mb.AddString(branchRoot)
 	msg := mb.Build(5)
 	peer.SendMessage(msg)
-	peer.logger.Info("sent distributed branch root message", "branchRoot", branchRoot)
+	peer.logger.Info("Sending DistributedBranchRootMessage", "branchRoot", branchRoot)
 	return map[string]any{
 		"type":               "BranchRoot",
 		"branchRootUsername": branchRoot,
@@ -148,7 +147,7 @@ func (peer *DistributedPeer) DistributedMessage(code uint8, data []byte) (map[st
 	mb.Message = append(mb.Message, data...)
 	msg := mb.Build(93)
 	peer.SendMessage(msg)
-	peer.logger.Info("sent distributed message", "code", code)
+	peer.logger.Info("Sending DistributedMessage", "code", code)
 	return map[string]any{
 		"type": "DistributedMessage",
 	}, nil

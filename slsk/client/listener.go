@@ -66,7 +66,7 @@ func readPeerInitMessage(conn net.Conn) ([]byte, error) {
 
 func (c *SlskClient) handlePierceFirewall(conn net.Conn, mr *messages.MessageReader) (map[string]any, error) {
 	token := mr.ReadInt32()
-	usernameAndConnType, ok := c.PendingOutgoingPeerConnectionTokens[token]
+	connInfo, ok := c.PendingTokens[token]
 	if !ok {
 		c.logger.Error("No pending connection for token", "token", token)
 		return map[string]any{
@@ -74,23 +74,34 @@ func (c *SlskClient) handlePierceFirewall(conn net.Conn, mr *messages.MessageRea
 		}, nil
 	}
 
-	c.logger.Info("Received PierceFirewall", "username", usernameAndConnType.username)
+	username := connInfo.username
+	c.logger.Info("Received PierceFirewall", "peer", username)
 	host, port, err := SplitHostPort(conn)
 	if err != nil {
 		return nil, err
 	}
-	c.RemovePendingPeer(usernameAndConnType.username)
-	delete(c.PendingOutgoingPeerConnectionTokens, token)
+	c.RemovePendingPeer(connInfo.username)
 
-	peer := c.PeerManager.AddPeer(usernameAndConnType.username, usernameAndConnType.connType, host, port, token, 0)
+	peer := c.PeerManager.AddPeer(username, connInfo.connType, host, port, token, connInfo.privileged)
 	if peer == nil {
 		return nil, fmt.Errorf("failed to connect to peer: %v", peer)
 	}
-	go peer.Listen()
+	if connInfo.connType == "F" {
+		key := fmt.Sprintf("%s_%d", username, token)
+		transfer, exists := c.PendingTransferReqs[key]
+		if !exists {
+			return nil, fmt.Errorf("got F connection but no pending file transfers found")
+		}
+		peer.PeerInit(c.Username, "F", 0)
+		go peer.UploadFile(transfer)
+		delete(c.PendingTransferReqs, key) // TODO: maybe should wait for an upload complete event
+
+	} else {
+		go peer.Listen()
+	}
 	return map[string]any{
 		"token": token,
 	}, nil
-
 }
 
 func (c *SlskClient) handlePeerInit(conn net.Conn, mr *messages.MessageReader) (map[string]any, error) {

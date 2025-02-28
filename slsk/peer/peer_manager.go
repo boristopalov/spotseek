@@ -1,8 +1,6 @@
 package peer
 
 import (
-	"bytes"
-	"compress/zlib"
 	"fmt"
 	"log/slog"
 	"net"
@@ -14,27 +12,33 @@ import (
 )
 
 type PeerManager struct {
-	peers         map[string]*Peer // username --> Peer info
-	mu            sync.RWMutex
-	peerCh        chan PeerEvent
-	clientCh      chan<- PeerEvent
-	children      []*DistributedPeer
-	SearchResults map[uint32][]shared.SearchResult // token --> search results
-	logger        *slog.Logger
-	shares        *fileshare.Shared
+	username        string
+	peers           map[string]*Peer // username --> Peer info
+	mu              sync.RWMutex
+	peerCh          chan PeerEvent
+	distribSearchCh chan DistribSearchMessage
+	children        []*DistributedPeer
+	SearchResults   map[uint32][]shared.SearchResult // token --> search results
+	SearchRequests  map[string][]shared.SearchResult // peer username --> incoming distributed search requests
+	transferReqCh   chan FileTransfer                // used when peers request files from us
+	logger          *slog.Logger
+	shares          *fileshare.Shared
 }
 
-func NewPeerManager(eventChan chan<- PeerEvent, shares *fileshare.Shared, logger *slog.Logger) *PeerManager {
+func NewPeerManager(username string, distribSearchCh chan DistribSearchMessage, transferReqCh chan FileTransfer, shares *fileshare.Shared, logger *slog.Logger) *PeerManager {
 	m := &PeerManager{
-		peers:         make(map[string]*Peer),
-		peerCh:        make(chan PeerEvent),
-		clientCh:      eventChan,
-		children:      make([]*DistributedPeer, 0),
-		SearchResults: make(map[uint32][]shared.SearchResult),
-		logger:        logger,
-		shares:        shares,
+		username:        username,
+		peers:           make(map[string]*Peer),
+		peerCh:          make(chan PeerEvent),
+		distribSearchCh: distribSearchCh,
+		transferReqCh:   transferReqCh,
+		children:        make([]*DistributedPeer, 0),
+		SearchResults:   make(map[uint32][]shared.SearchResult),
+		logger:          logger,
+		shares:          shares,
 	}
 	go m.listenForEvents()
+	go m.listenForDistribMessages()
 	return m
 }
 
@@ -63,15 +67,16 @@ func (manager *PeerManager) ConnectToPeer(host string, port uint32, username str
 	}
 
 	if peer.ConnType == "F" {
-		peer.logger.Info("Listening for file transfer", "peer", peer.Username)
 		filePeer := NewFileTransferPeer(peer)
 		peer.PierceFirewall(peer.Token)
 		go filePeer.FileListen()
+		manager.logger.Info("Listening for file transfer", "peer", peer.Username)
 		return nil
 	}
 
 	peer.PierceFirewall(peer.Token)
 	go peer.Listen()
+	manager.logger.Info("Connected to peer", "username", username)
 	return nil
 }
 
@@ -114,7 +119,7 @@ func (manager *PeerManager) AddPeer(username string, connType string, ip string,
 		return peer
 	}
 
-	peer, err := newPeer(username, connType, token, ip, port, privileged, manager.peerCh, manager.logger)
+	peer, err := newPeer(username, connType, token, ip, port, privileged, manager.peerCh, manager.distribSearchCh, manager.logger)
 	if err != nil {
 		return nil
 	}
@@ -127,22 +132,25 @@ func (manager *PeerManager) AddPeer(username string, connType string, ip string,
 	return peer
 }
 
-func newPeer(username string, connType string, token uint32, host string, port uint32, privileged uint8, peerCh chan<- PeerEvent, logger *slog.Logger) (*Peer, error) {
+func newPeer(username string, connType string, token uint32, host string, port uint32, privileged uint8, peerCh chan<- PeerEvent, distribSearchCh chan<- DistribSearchMessage, logger *slog.Logger) (*Peer, error) {
+	logger.Info("Connecting to peer via TCP", "username", username, "host", host, "port", port)
 	c, err := net.DialTimeout("tcp", net.JoinHostPort(host, fmt.Sprintf("%d", port)), 10*time.Second)
 	if err != nil {
+		logger.Error("unable to establish connection to peer", "username", username, "error", err)
 		return nil, fmt.Errorf("unable to establish connection to peer %s: %v", username, err)
 	} else {
 		return &Peer{
-			Username:       username,
-			PeerConnection: &shared.Connection{Conn: c},
-			ConnType:       connType,
-			Token:          token,
-			Host:           host,
-			Port:           port,
-			Privileged:     privileged,
-			mgrCh:          peerCh,
-			downloadFileCh: make(chan struct{}),
-			logger:         logger,
+			Username:        username,
+			PeerConnection:  &shared.Connection{Conn: c},
+			ConnType:        connType,
+			Token:           token,
+			Host:            host,
+			Port:            port,
+			Privileged:      privileged,
+			mgrCh:           peerCh,
+			distribSearchCh: distribSearchCh,
+			fileTransferCh:  make(chan struct{}),
+			logger:          logger,
 		}, nil
 	}
 }
@@ -166,6 +174,24 @@ func (peer *Peer) PierceFirewall(token uint32) error {
 	return err
 }
 
+func (manager *PeerManager) listenForDistribMessages() {
+	for msg := range manager.distribSearchCh {
+		// send to client
+		manager.distribSearchCh <- msg
+
+		// forward to children
+		mb := messages.NewMessageBuilder()
+		mb.AddInt32(1) // unknown
+		mb.AddString(msg.Username)
+		mb.AddInt32(msg.Token)
+		mb.AddString(msg.Query)
+		data := mb.Build(3)
+		for _, child := range manager.children {
+			child.PeerConnection.SendMessage(data)
+		}
+	}
+}
+
 // TODO: complete handling of PeerEvents
 func (manager *PeerManager) listenForEvents() {
 	for event := range manager.peerCh {
@@ -174,59 +200,34 @@ func (manager *PeerManager) listenForEvents() {
 			event.Peer.Close()
 			manager.RemovePeer(event.Peer)
 
-		case SharedFileListRequest:
-			// manager.logger.Info("Received shared file list request", "peer", event.Peer.Username)
-			// construct a message with our shared file list (SharedFileListResponse)
-			mb := messages.NewMessageBuilder()
-			mb.AddInt32(manager.shares.GetShareStats().TotalFolders)
-
-			// currently only one directory
-			mb.AddString(manager.shares.Files[0].Dir)
-			mb.AddInt32(manager.shares.GetShareStats().TotalFiles)
-
-			for _, file := range manager.shares.Files {
-				mb.AddInt8(1) // Code - value is always 1
-				mb.AddString(file.Key)
-				mb.AddInt64(uint64(file.Value.Size))
-				mb.AddString(file.Value.Extension)
-
-				mb.AddInt32(3) // 3 file attributes
-
-				// Bitrate
-				mb.AddInt32(0) // code 0
-				mb.AddInt32(uint32(file.Value.BitRate))
-
-				// Duration
-				mb.AddInt32(1) // code 1
-				mb.AddInt32(uint32(file.Value.DurationSeconds))
-
-				// Sample rate
-				mb.AddInt32(4) // code 4
-				mb.AddInt32(uint32(file.Value.SampleRate))
+		// we are ready to start uploading a file
+		// client will send a new ConnectToPeer with type "F"
+		// see client.listenForTransferRequests()
+		case TransferRequest:
+			msg := event.Data.(TransferRequestMessage)
+			manager.transferReqCh <- FileTransfer{
+				Filename:     msg.Filename,
+				Token:        msg.Token,
+				Size:         msg.Size,
+				PeerUsername: msg.PeerUsername,
+				Offset:       0,
+				Buffer:       nil,
 			}
-			mb.AddInt32(0) // unknown
-			mb.AddInt32(0) // private diectories
+			// idk about this
+			event.Peer.Close()
+			// event.Peer.PeerInit(manager.username, "F", msg.Token)
 
-			// zlib compress
-			var compressedData bytes.Buffer
-			zlibWriter := zlib.NewWriter(&compressedData)
-			zlibWriter.Write(mb.Message)
-			zlibWriter.Close()
-			mb.Message = compressedData.Bytes()
+		case SharedFileListRequest:
+			event.Peer.SharedFileListResponse(manager.shares)
 
-			// Send SharedFileListResponse
-			msg := mb.Build(5)
-			event.Peer.SendMessage(msg)
-
-		// incoming file search request
+		// peer wants to download a file
 		case UploadRequest:
 			msg := event.Data.(UploadRequestMessage)
-			// manager.logger.Info("Received upload request", "peer", event.Peer.Username, "token", msg.Token, "filename", msg.Filename)
 			res := manager.shares.Search(msg.Filename)
 			if len(res) > 0 {
-				event.Peer.TransferRequest(1, msg.Token, res[0].Key, uint64(res[0].Value.Size))
+				event.Peer.TransferRequest(1, res[0].Value.Path, uint64(res[0].Value.Size))
 			} else {
-				event.Peer.UploadDenied(msg.Filename, "File read error.")
+				event.Peer.UploadDenied(msg.Filename, "File not shared.")
 			}
 
 		// incoming file search response
@@ -234,21 +235,12 @@ func (manager *PeerManager) listenForEvents() {
 			msg := event.Data.(FileSearchData)
 			manager.SearchResults[msg.Token] =
 				append(manager.SearchResults[msg.Token], msg.Results)
-			manager.clientCh <- event
+			// manager.clientCh <- event
 
-		// Distributed Messages
-		case DistribSearch:
-			msg := event.Data.(DistribSearchMessage)
-			mb := messages.NewMessageBuilder()
-			mb.AddInt32(1) // unknown
-			mb.AddString(msg.Username)
-			mb.AddInt32(msg.Token)
-			mb.AddString(msg.Query)
-			data := mb.Build(3)
-			for _, child := range manager.children {
-				child.PeerConnection.SendMessage(data)
-			}
-			// manager.
+		case UploadComplete:
+			manager.RemovePeer(event.Peer)
+			event.Peer.Close()
+
 		case BranchLevel:
 			msg := event.Data.(BranchLevelMessage)
 			if msg.BranchLevel == 0 {

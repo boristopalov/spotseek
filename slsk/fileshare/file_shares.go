@@ -272,16 +272,5 @@ func matches(str, query string) bool {
 }
 
 func getShareLinksDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	shareLinksPath := filepath.Join(home, config.APP_NAME, "shares")
-	if _, err := os.Stat(shareLinksPath); os.IsNotExist(err) {
-		err = os.MkdirAll(shareLinksPath, 0755)
-		if err != nil {
-			return ""
-		}
-	}
-	return shareLinksPath
+	return "/tmp/.spotseek/shares"
 }

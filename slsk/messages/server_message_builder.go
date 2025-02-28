@@ -7,7 +7,7 @@ import (
 
 // Soulseek protocol required variables
 const VERSION = 160
-const MINOR = 17
+const MINOR = 19
 
 // token to increment for each search
 var SEARCH_TOKEN int32 = 2

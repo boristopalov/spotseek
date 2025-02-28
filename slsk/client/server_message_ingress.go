@@ -149,10 +149,10 @@ func (c *SlskClient) handleServerMessage(messageData []byte) {
 	default:
 		c.logger.Error("invalid code", "code", code)
 	}
+	var _ = decoded
 	if err != nil {
 		c.logger.Error("error handling server message", "code", code, "err", err)
 	}
-	c.logger.Info("received message from server", "code", code, "message", decoded)
 }
 
 func (c *SlskClient) HandleLogin(mr *messages.MessageReader) (map[string]any, error) {
@@ -187,17 +187,26 @@ func (c *SlskClient) HandleGetPeerAddress(mr *messages.MessageReader) (map[strin
 	decoded["username"] = username
 	decoded["ip"] = host
 	decoded["port"] = port
+
+	c.logger.Info("Received GetPeerAddress", "username", username, "ip", host, "port", port)
 	if host == "0.0.0.0" {
 		return decoded, fmt.Errorf("User is offline")
 	}
-	peerInfo, found := c.PendingOutgoingPeerConnections[username]
-	if !found {
-		return decoded, fmt.Errorf("no pending outgoing peer connection for user %s", username)
-	}
+
 	go func() {
-		c.PeerManager.ConnectToPeer(host, port, username, peerInfo.connType, peerInfo.token, peerInfo.privileged)
-		c.RemovePendingPeer(username)
-		delete(c.PendingOutgoingPeerConnectionTokens, peerInfo.token)
+		connInfo := c.GetPendingPeer(username)
+		err := c.PeerManager.ConnectToPeer(host, port, username, connInfo.connType, connInfo.token, connInfo.privileged)
+		if err != nil {
+			c.RemovePendingPeer(username)
+		} else {
+			// send any search results we have stored for this peer
+			peer := c.PeerManager.GetPeer(username)
+			storedSearchResultsForPeer := c.DistribSearchResults[username]
+			for _, res := range storedSearchResultsForPeer {
+				peer.FileSearchResponse(username, res.token, res.files)
+			}
+			delete(c.DistribSearchResults, username)
+		}
 	}()
 	return decoded, nil
 }
@@ -419,6 +428,7 @@ func (c *SlskClient) HandleConnectToPeer(mr *messages.MessageReader) (map[string
 	decoded["token"] = token
 	decoded["privileged"] = privileged
 
+	c.logger.Info("Received ConnectToPeer", "username", username, "ip", ip, "port", port, "token", token, "privileged", privileged)
 	go func() {
 		err := c.PeerManager.ConnectToPeer(ip, port, username, connType, token, privileged)
 		if err != nil {
@@ -454,6 +464,7 @@ func (c *SlskClient) HandleFileSearch(mr *messages.MessageReader) (map[string]an
 
 	// TODO
 	// c.shares.Search(query)
+	c.logger.Info("Received FileSearch", "username", username, "token", token, "query", query)
 	return decoded, nil
 }
 
@@ -547,6 +558,7 @@ func (c *SlskClient) HandlePossibleParents(mr *messages.MessageReader) (map[stri
 	}
 	decoded["parents"] = parents
 
+	c.logger.Info("Received PossibleParents", "parents", parents)
 	go func() {
 		// Loop through parents and attempt connection
 		for _, parent := range parents {
@@ -716,6 +728,7 @@ func (c *SlskClient) HandleCantConnectToPeer(mr *messages.MessageReader) (map[st
 	username := mr.ReadString()
 	decoded["token"] = token
 	decoded["username"] = username
+	c.logger.Info("Received CantConnectToPeer", "token", token, "username", username)
 	c.RemovePendingPeer(username)
 	return decoded, nil
 }

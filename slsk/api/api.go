@@ -64,7 +64,7 @@ func ConnectToPeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c.ConnectToPeer(username, connType)
+	c.ConnectToPeer(username, connType, 0)
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Connection to peer initiated"})
 }
