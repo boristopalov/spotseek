@@ -206,10 +206,6 @@ func (peer *Peer) processMessage(data []byte, messageLength uint32) ([]byte, uin
 					"length", messageLength,
 					"peer", peer.Username)
 			}
-		} else if peer.ConnType == "F" {
-			peer.logger.Info("entering file transfer mode", "peer", peer.Username)
-			p := NewFileTransferPeer(peer)
-			p.FileListen()
 		} else {
 			peer.logger.Error("Unsupported connection type when handling message", "connType", peer.ConnType, "peer", peer)
 			return nil, 0

@@ -6,24 +6,21 @@ import (
 
 type DistributedPeer struct {
 	*Peer
-	branchLevel int
+	branchLevel uint32
 	branchRoot  string
-	childDepth  int
 }
 
 func NewDistributedPeer(peer *Peer) *DistributedPeer {
 	return &DistributedPeer{
 		Peer:        peer,
-		branchLevel: -1,
+		branchLevel: 0,
 		branchRoot:  "",
-		childDepth:  -1,
 	}
 }
 
 func (peer *DistributedPeer) handleMessage(messageData []byte) error {
 	mr := messages.NewMessageReader(messageData)
 	code := mr.ReadInt8()
-	peer.logger.Info("received distributed message", "code", code)
 	var result map[string]any
 	var err error
 	switch code {
@@ -39,7 +36,7 @@ func (peer *DistributedPeer) handleMessage(messageData []byte) error {
 	if err != nil {
 		peer.logger.Error("error handling distributed message", "error", err)
 	}
-	peer.logger.Info("distributed message handled", "result", result)
+	peer.logger.Info("received distributed message", "result", result)
 	return err
 }
 
@@ -84,6 +81,7 @@ func (peer *DistributedPeer) Search(username string, token uint32, query string)
 
 func (peer *DistributedPeer) handleBranchLevel(mr *messages.MessageReader) (map[string]any, error) {
 	level := mr.ReadInt32()
+	peer.branchLevel = level
 	peer.mgrCh <- PeerEvent{
 		Type: BranchLevel,
 		Peer: peer.Peer,
@@ -111,6 +109,7 @@ func (peer *DistributedPeer) BranchLevel(branchLevel uint32) (map[string]any, er
 
 func (peer *DistributedPeer) handleBranchRoot(mr *messages.MessageReader) (map[string]any, error) {
 	branchRootUsername := mr.ReadString()
+	peer.branchRoot = branchRootUsername
 	peer.mgrCh <- PeerEvent{
 		Type: BranchRoot,
 		Peer: peer.Peer,

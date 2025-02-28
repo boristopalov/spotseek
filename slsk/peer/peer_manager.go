@@ -44,7 +44,18 @@ func (manager *PeerManager) RemovePeer(peer *Peer) {
 	manager.mu.Unlock()
 }
 
-// for outgoing connection attempts
+func (manager *PeerManager) ConnectToPeerDistrib(ownUser string, host string, port uint32, peerUsername string, connType string, token uint32, privileged uint8) error {
+	peer := manager.AddPeer(peerUsername, connType, host, port, token, privileged)
+	if peer == nil {
+		return fmt.Errorf("cannot connect to user %s with connType %s", peerUsername, connType)
+	}
+
+	peer.PeerInit(ownUser, peer.ConnType, peer.Token)
+	peer.PierceFirewall(peer.Token)
+	go peer.Listen()
+	return nil
+}
+
 func (manager *PeerManager) ConnectToPeer(host string, port uint32, username string, connType string, token uint32, privileged uint8) error {
 	peer := manager.AddPeer(username, connType, host, port, token, privileged)
 	if peer == nil {
@@ -59,11 +70,7 @@ func (manager *PeerManager) ConnectToPeer(host string, port uint32, username str
 		return nil
 	}
 
-	err := peer.PierceFirewall(peer.Token)
-	if err != nil {
-		return err
-	}
-
+	peer.PierceFirewall(peer.Token)
 	go peer.Listen()
 	return nil
 }
@@ -241,8 +248,12 @@ func (manager *PeerManager) listenForEvents() {
 			for _, child := range manager.children {
 				child.PeerConnection.SendMessage(data)
 			}
+			// manager.
 		case BranchLevel:
 			msg := event.Data.(BranchLevelMessage)
+			if msg.BranchLevel == 0 {
+				// TODO
+			}
 			mb := messages.NewMessageBuilder()
 			mb.AddInt32(msg.BranchLevel)
 			data := mb.Build(4)

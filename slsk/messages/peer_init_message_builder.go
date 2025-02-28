@@ -9,8 +9,7 @@ type PeerInitMessageBuilder struct {
 func (mb *PeerInitMessageBuilder) PeerInit(username string, connType string, token uint32) []byte {
 	mb.AddString(username)
 	mb.AddString(connType)
-	mb.AddInt32(token) // token - value is always 0
-	// mb.AddInt32(0) // token - value is always 0
+	mb.AddInt32(0) // token - value is always 0
 	return mb.Build(1)
 }
 

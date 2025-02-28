@@ -182,5 +182,5 @@ func (mb *ServerMessageBuilder) BranchLevel(branchLevel uint32) []byte {
 
 func (mb *ServerMessageBuilder) BranchRoot(branchRoot string) []byte {
 	mb.AddString(branchRoot)
-	return mb.Build(126)
+	return mb.Build(127)
 }

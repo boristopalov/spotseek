@@ -1,13 +1,11 @@
 package client
 
 import (
-	"encoding/binary"
 	"spotseek/slsk/messages"
 	"spotseek/slsk/shared"
 )
 
 func (c *SlskClient) Send(msg []byte) {
-	c.logger.Info("[server] sending message to server", "code", binary.LittleEndian.Uint32(msg[4:8]))
 	c.ServerConnection.SendMessage(msg)
 }
 

@@ -441,13 +441,19 @@ func (c *SlskClient) HandleMessageUser(mr *messages.MessageReader) (map[string]a
 	return decoded, nil
 }
 
-// this is sent to us if a user is specifically searching our files
+// this is sent to us if a user is searching our files
 func (c *SlskClient) HandleFileSearch(mr *messages.MessageReader) (map[string]any, error) {
+	username := mr.ReadString()
+	token := mr.ReadInt32()
+	query := mr.ReadString()
 	decoded := make(map[string]any)
 	decoded["type"] = "fileSearch"
-	decoded["username"] = mr.ReadString()
-	decoded["token"] = mr.ReadInt32()
-	decoded["query"] = mr.ReadString()
+	decoded["username"] = username
+	decoded["token"] = token
+	decoded["query"] = query
+
+	// TODO
+	// c.shares.Search(query)
 	return decoded, nil
 }
 
@@ -547,7 +553,7 @@ func (c *SlskClient) HandlePossibleParents(mr *messages.MessageReader) (map[stri
 			username := parent["username"].(string)
 			host := parent["ip"].(string)
 			port := parent["port"].(uint32)
-			err := c.PeerManager.ConnectToPeer(host, port, username, "D", 0, 0)
+			err := c.PeerManager.ConnectToPeerDistrib(c.User, host, port, username, "D", 0, 0)
 			if err == nil {
 				// tell the server that we found a parent
 				c.HaveNoParent(0)
