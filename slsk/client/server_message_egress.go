@@ -2,8 +2,8 @@ package client
 
 import (
 	"math/rand/v2"
+	"spotseek/slsk/fileshare"
 	"spotseek/slsk/messages"
-	"spotseek/slsk/shared"
 )
 
 func (c *SlskClient) Send(msg []byte) {
@@ -44,7 +44,7 @@ func (c *SlskClient) FileSearch(query string) {
 	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	t := uint32(rand.Int32()) // rand.Int32() returns non-negative, this is safe
 	c.mu.Lock()
-	c.PeerManager.SearchResults[t] = make([]shared.SearchResult, 0)
+	c.PeerManager.SearchResults[t] = make([]fileshare.SearchResult, 0)
 	c.mu.Unlock()
 	c.logger.Info("Sending FileSearch", "token", t, "query", query)
 	msg := mb.FileSearch(t, query)

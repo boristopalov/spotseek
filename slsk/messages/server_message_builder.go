@@ -9,9 +9,6 @@ import (
 const VERSION = 160
 const MINOR = 19
 
-// token to increment for each search
-var SEARCH_TOKEN int32 = 2
-
 type ServerMessageBuilder struct {
 	*MessageBuilder
 }

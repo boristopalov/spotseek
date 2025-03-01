@@ -11,7 +11,7 @@ import (
 	"spotseek/logging"
 	"spotseek/slsk/api"
 	"spotseek/slsk/client"
-	"spotseek/slsk/tui"
+	"spotseek/tui"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/go-chi/chi/v5"

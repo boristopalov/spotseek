@@ -1,4 +1,4 @@
-package shared
+package net
 
 import (
 	"errors"

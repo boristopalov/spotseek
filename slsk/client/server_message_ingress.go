@@ -565,7 +565,7 @@ func (c *SlskClient) HandlePossibleParents(mr *messages.MessageReader) (map[stri
 			username := parent["username"].(string)
 			host := parent["ip"].(string)
 			port := parent["port"].(uint32)
-			err := c.PeerManager.ConnectToPeerDistrib(c.User, host, port, username, "D", 0, 0)
+			err := c.PeerManager.ConnectToPeer(host, port, username, "D", 0, 0)
 			if err == nil {
 				// tell the server that we found a parent
 				c.HaveNoParent(0)

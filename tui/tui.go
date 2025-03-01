@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"spotseek/slsk/client"
+	"spotseek/slsk/fileshare"
 	"spotseek/slsk/peer"
-	"spotseek/slsk/shared"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -168,7 +168,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case peer.PeerEvent:
 		if msg.Type == peer.FileSearchResponse {
-			data := msg.Data.(peer.FileSearchData)
+			data := msg.Msg.(peer.FileSearchMsg)
 			m.UpdateResults(data.Results)
 		}
 	}
@@ -246,7 +246,7 @@ func (m *model) updateTableRows() {
 	m.searchTable.SetRows(tableRows)
 }
 
-func (m *model) UpdateResults(result shared.SearchResult) {
+func (m *model) UpdateResults(result fileshare.SearchResult) {
 
 	for _, file := range result.PublicFiles {
 		displayFilename := strings.ReplaceAll(file.Name, "\\", "/")

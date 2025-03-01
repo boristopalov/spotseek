@@ -46,11 +46,38 @@ type FileInfo struct {
 	Extension       string // File extension
 }
 
+type File struct {
+	Name       string `json:"name"`
+	Size       uint64 `json:"size"`
+	BitRate    uint32 `json:"bitRate"`
+	Extension  string `json:"extension"`
+	Duration   uint32 `json:"duration"`
+	SampleRate uint32 `json:"sampleRate"`
+}
+
+type Directory struct {
+	Name  string `json:"name"`
+	Files []File `json:"files"`
+}
+
+type SearchResult struct {
+	Username      string `json:"username"`
+	Token         uint32 `json:"token"`
+	PublicFiles   []File `json:"publicFiles"`
+	SlotFree      uint8  `json:"slotFree"`
+	AvgSpeed      uint32 `json:"avgSpeed"`
+	QueuePosition uint32 `json:"queuePosition"`
+}
+
 // Shared manages the collection of shared files
 type Shared struct {
 	Files    []SharedFile
 	settings *config.Settings
 	logger   *slog.Logger
+}
+
+type SharedFileList struct {
+	Directories []Directory `json:"directories"`
 }
 
 // NewShared creates a new Shared instance

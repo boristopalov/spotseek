@@ -7,8 +7,8 @@ import (
 	"net"
 	"spotseek/config"
 	"spotseek/slsk/fileshare"
+	nc "spotseek/slsk/net"
 	"spotseek/slsk/peer"
-	"spotseek/slsk/shared"
 	"sync"
 	"time"
 )
@@ -65,7 +65,7 @@ type SlskClient struct {
 	Username         string // username of user logged in TODO: do i need this
 	Host             string
 	Port             int
-	ServerConnection *shared.Connection
+	ServerConnection *nc.Connection
 	Listener         net.Listener
 	mu               sync.RWMutex
 	User             string                      // the user that is logged in
@@ -74,7 +74,7 @@ type SlskClient struct {
 	JoinedRooms      map[string]*Room            // room name --> users in room
 	PeerManager      *peer.PeerManager
 
-	DistribSearchCh      chan peer.DistribSearchMessage   // used for incoming distributed msgs
+	DistribSearchCh      chan peer.DistribSearchMsg       // used for incoming distributed msgs
 	DistribSearchResults map[string][]distribSearchResult // username -> token and results
 
 	TransferReqCh       chan peer.FileTransfer       // used for when peers request files from us
@@ -89,7 +89,7 @@ func NewSlskClient(username string, host string, port int, logger *slog.Logger) 
 		return nil
 	}
 	shares := fileshare.NewShared(config.GetSettings(), logger)
-	distributedsearchCh := make(chan peer.DistribSearchMessage)
+	distributedsearchCh := make(chan peer.DistribSearchMsg)
 	transferReqCh := make(chan peer.FileTransfer)
 	return &SlskClient{
 		Username:             username,
@@ -117,7 +117,7 @@ func (c *SlskClient) Connect(username, pw string) error {
 	dialer := &net.Dialer{
 		KeepAlive: 120 * time.Second,
 	}
-	conn, err := dialer.Dial("tcp", fmt.Sprintf("%s:%d", c.Host, c.Port))
+	conn, err := dialer.Dial("tcp", net.JoinHostPort(c.Host, fmt.Sprintf("%d", c.Port)))
 	if err != nil {
 		return errors.New("unable to dial tcp connection; " + err.Error())
 	}
@@ -125,7 +125,7 @@ func (c *SlskClient) Connect(username, pw string) error {
 	if err != nil {
 		return errors.New("unable to listen on port 2234; " + err.Error())
 	}
-	c.ServerConnection = &shared.Connection{Conn: conn}
+	c.ServerConnection = &nc.Connection{Conn: conn}
 	c.Listener = listener
 
 	c.User = username
