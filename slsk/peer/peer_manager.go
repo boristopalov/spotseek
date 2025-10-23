@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"spotseek/slsk/downloads"
 	"spotseek/slsk/fileshare"
 	"spotseek/slsk/messages"
 	nc "spotseek/slsk/net"
@@ -15,6 +16,13 @@ type SearchManager interface {
 	AddResult(token uint32, result fileshare.SearchResult) error
 }
 
+type DownloadManager interface {
+	UpdateProgress(token uint32, bytesReceived uint64) error
+	UpdateStatus(token uint32, status downloads.DownloadStatus) error
+	SetError(token uint32, errorMsg string) error
+	SetQueuePosition(token uint32, position uint32) error
+}
+
 type PeerManager struct {
 	username        string
 	peers           map[string]*Peer // username --> Peer info
@@ -23,13 +31,14 @@ type PeerManager struct {
 	distribSearchCh chan DistribSearchMsg
 	children        []DistributedPeer
 	searchManager   SearchManager                       // manages search state and results
+	downloadManager DownloadManager                     // manages download state and progress
 	SearchRequests  map[string][]fileshare.SearchResult // peer username --> incoming distributed search requests
 	transferReqCh   chan FileTransfer                   // used when peers request files from us
 	logger          *slog.Logger
 	shares          *fileshare.Shared
 }
 
-func NewPeerManager(username string, distribSearchCh chan DistribSearchMsg, transferReqCh chan FileTransfer, shares *fileshare.Shared, searchManager SearchManager, logger *slog.Logger) *PeerManager {
+func NewPeerManager(username string, distribSearchCh chan DistribSearchMsg, transferReqCh chan FileTransfer, shares *fileshare.Shared, searchManager SearchManager, downloadManager DownloadManager, logger *slog.Logger) *PeerManager {
 	m := &PeerManager{
 		username:        username,
 		peers:           make(map[string]*Peer),
@@ -38,6 +47,7 @@ func NewPeerManager(username string, distribSearchCh chan DistribSearchMsg, tran
 		transferReqCh:   transferReqCh,
 		children:        make([]DistributedPeer, 0),
 		searchManager:   searchManager,
+		downloadManager: downloadManager,
 		logger:          logger,
 		shares:          shares,
 	}
@@ -212,6 +222,38 @@ func (manager *PeerManager) listenForEvents() {
 		case UploadComplete:
 			manager.RemovePeer(event.Peer)
 			event.Peer.Close()
+
+		case DownloadProgress:
+			msg := event.Msg.(DownloadProgressMsg)
+			err := manager.downloadManager.UpdateProgress(msg.Token, msg.BytesReceived)
+			if err != nil {
+				manager.logger.Warn("Failed to update download progress", "token", msg.Token, "err", err)
+			}
+
+		case DownloadComplete:
+			msg := event.Msg.(DownloadCompleteMsg)
+			err := manager.downloadManager.UpdateStatus(msg.Token, "completed")
+			if err != nil {
+				manager.logger.Warn("Failed to update download status", "token", msg.Token, "err", err)
+			}
+			event.Peer.Close()
+			manager.RemovePeer(event.Peer)
+
+		case DownloadFailed:
+			msg := event.Msg.(DownloadFailedMsg)
+			err := manager.downloadManager.SetError(msg.Token, msg.Error)
+			if err != nil {
+				manager.logger.Warn("Failed to set download error", "token", msg.Token, "err", err)
+			}
+			event.Peer.Close()
+			manager.RemovePeer(event.Peer)
+
+		case PlaceInQueueResponse:
+			msg := event.Msg.(PlaceInQueueMsg)
+			err := manager.downloadManager.SetQueuePosition(msg.Place, msg.Place)
+			if err != nil {
+				manager.logger.Debug("Failed to set queue position (may not be a download)", "place", msg.Place, "err", err)
+			}
 
 		}
 	}

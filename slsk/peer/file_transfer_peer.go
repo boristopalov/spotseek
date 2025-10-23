@@ -2,6 +2,7 @@ package peer
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	"os"
 	"path"
@@ -74,24 +75,89 @@ func (peer *fileTransferPeer) FileListen() {
 				peer.logger.Info("File transfer completed",
 					"peer", peer.Username,
 					"filename", transfer.Filename)
+
+				// Send download failed event (unexpected EOF)
+				peer.mgrCh <- PeerEvent{
+					Type: DownloadFailed,
+					Peer: peer,
+					Msg: DownloadFailedMsg{
+						Token: token,
+						Error: "Unexpected EOF",
+					},
+				}
 				return
 			}
 			peer.logger.Error("error reading file data", "error", err)
+
+			// Send download failed event
+			peer.mgrCh <- PeerEvent{
+				Type: DownloadFailed,
+				Peer: peer,
+				Msg: DownloadFailedMsg{
+					Token: token,
+					Error: err.Error(),
+				},
+			}
 			return
 		}
-		peer.logger.Info("File transfer data received", "n", n)
+		peer.logger.Debug("File transfer data received", "n", n, "token", token)
+
 		// Write to transfer buffer
 		if _, err := transfer.Buffer.Write(readBuffer[:n]); err != nil {
 			peer.logger.Error("error writing to buffer", "error", err)
+
+			// Send download failed event
+			peer.mgrCh <- PeerEvent{
+				Type: DownloadFailed,
+				Peer: peer,
+				Msg: DownloadFailedMsg{
+					Token: token,
+					Error: fmt.Sprintf("buffer write error: %v", err),
+				},
+			}
 			return
 		}
 
 		transfer.Offset += uint64(n)
 
+		// Send progress update
+		peer.mgrCh <- PeerEvent{
+			Type: DownloadProgress,
+			Peer: peer,
+			Msg: DownloadProgressMsg{
+				Token:         token,
+				BytesReceived: transfer.Offset,
+			},
+		}
+
 		// Check if transfer is complete
 		if uint64(transfer.Buffer.Len()) >= transfer.Size {
-			peer.logger.Info("File transfer complete", "filename", transfer.Filename)
-			writeToDownloadsDir(transfer.Filename, transfer.Buffer.Bytes())
+			peer.logger.Info("File transfer complete", "filename", transfer.Filename, "token", token)
+			err := writeToDownloadsDir(transfer.Filename, transfer.Buffer.Bytes())
+			if err != nil {
+				peer.logger.Error("error writing file to disk", "error", err)
+
+				// Send download failed event
+				peer.mgrCh <- PeerEvent{
+					Type: DownloadFailed,
+					Peer: peer,
+					Msg: DownloadFailedMsg{
+						Token: token,
+						Error: fmt.Sprintf("disk write error: %v", err),
+					},
+				}
+				return
+			}
+
+			// Send download complete event
+			peer.mgrCh <- PeerEvent{
+				Type: DownloadComplete,
+				Peer: peer,
+				Msg: DownloadCompleteMsg{
+					Token:    token,
+					Filename: transfer.Filename,
+				},
+			}
 			return
 		}
 	}

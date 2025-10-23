@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"spotseek/config"
+	"spotseek/slsk/downloads"
 	"spotseek/slsk/fileshare"
 	nc "spotseek/slsk/net"
 	"spotseek/slsk/peer"
@@ -74,6 +75,7 @@ type SlskClient struct {
 	JoinedRooms      map[string]*Room            // room name --> users in room
 	PeerManager      *peer.PeerManager
 	SearchManager    *SearchManager
+	DownloadManager  *downloads.DownloadManager
 
 	DistribSearchCh      chan peer.DistribSearchMsg       // used for incoming distributed msgs
 	DistribSearchResults map[string][]distribSearchResult // username -> token and results
@@ -92,7 +94,8 @@ func NewSlskClient(username string, host string, port int, logger *slog.Logger) 
 	shares := fileshare.NewShared(config.GetSettings(), logger)
 	distributedsearchCh := make(chan peer.DistribSearchMsg)
 	transferReqCh := make(chan peer.FileTransfer)
-	searchManager := NewSearchManager(5*time.Minute, logger)
+	searchManager := NewSearchManager(10*time.Minute, logger)
+	downloadManager := downloads.NewDownloadManager(10*time.Minute, logger)
 
 	client := &SlskClient{
 		Username:             username,
@@ -106,11 +109,12 @@ func NewSlskClient(username string, host string, port int, logger *slog.Logger) 
 		TransferReqCh:        transferReqCh,
 		PendingTransferReqs:  make(map[string]peer.FileTransfer),
 		SearchManager:        searchManager,
+		DownloadManager:      downloadManager,
 		logger:               logger,
 		shares:               shares,
 	}
 
-	client.PeerManager = peer.NewPeerManager(username, distributedsearchCh, transferReqCh, shares, searchManager, logger)
+	client.PeerManager = peer.NewPeerManager(username, distributedsearchCh, transferReqCh, shares, searchManager, downloadManager, logger)
 	return client
 }
 

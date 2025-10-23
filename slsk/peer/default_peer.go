@@ -255,12 +255,13 @@ func (peer *defaultPeer) handleFileSearchResponse(reader *messages.MessageReader
 		}
 
 		result.PublicFiles[i] = fileshare.File{
-			Name:       filename,
-			Size:       size,
-			BitRate:    bitrate,
-			Duration:   duration,
-			SampleRate: sampleRate,
-			Extension:  extension,
+			Name:        filename,
+			VirtualPath: filename, // Full path from protocol
+			Size:        size,
+			BitRate:     bitrate,
+			Duration:    duration,
+			SampleRate:  sampleRate,
+			Extension:   extension,
 		}
 	}
 

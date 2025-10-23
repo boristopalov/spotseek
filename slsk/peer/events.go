@@ -13,6 +13,9 @@ const (
 	UploadRequest
 	TransferRequest
 	UploadComplete
+	DownloadProgress
+	DownloadComplete
+	DownloadFailed
 	// Maximum allowed message size (32MB)
 	MaxMessageSize = 32 * 1024 * 1024
 )
@@ -68,4 +71,19 @@ type BranchRootMsg struct {
 
 type UploadRequestMsg struct {
 	Filename string
+}
+
+type DownloadProgressMsg struct {
+	Token         uint32
+	BytesReceived uint64
+}
+
+type DownloadCompleteMsg struct {
+	Token    uint32
+	Filename string
+}
+
+type DownloadFailedMsg struct {
+	Token uint32
+	Error string
 }
