@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -16,14 +15,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/go-chi/chi/v5"
 )
-
-type ContextKey string
-
-func (c ContextKey) String() string {
-	return string(c)
-}
-
-const SlskClientKey ContextKey = "slskClient"
 
 type CLI struct {
 	output io.Writer
@@ -97,21 +88,14 @@ func (c *CLI) Run(args []string) error {
 
 func startServer(slskClient *client.SlskClient) error {
 	mux := chi.NewRouter()
+	handler := api.NewAPIHandler(slskClient)
 
-	mux.Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := r.Context()
-			ctx = context.WithValue(ctx, SlskClientKey, slskClient)
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	})
-
-	mux.Get("/connect/user/{username}/conn/{connType}", api.ConnectToPeer)
-	mux.Get("/search", api.Search)
-	mux.Get("/download", api.Download)
-	mux.Get("/join", api.JoinRoom)
-	mux.Get("/slsk-client", api.GetSlskClient)
-	mux.Get("/check-port", api.CheckPort)
+	mux.Get("/connect/user/{username}/conn/{connType}", handler.ConnectToPeer)
+	mux.Get("/search", handler.Search)
+	mux.Get("/download", handler.Download)
+	mux.Get("/join", handler.JoinRoom)
+	mux.Get("/slsk-client", handler.GetSlskClient)
+	mux.Get("/check-port", handler.CheckPort)
 
 	fmt.Println("Starting HTTP server on localhost:3000")
 	return http.ListenAndServe("localhost:3000", mux)

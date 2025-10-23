@@ -11,13 +11,16 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-func GetSlskClient(w http.ResponseWriter, r *http.Request) {
-	c, ok := r.Context().Value("slskClient").(*client.SlskClient)
-	if !ok {
-		http.Error(w, "Cannot retrieve slskClient from context", http.StatusInternalServerError)
-		return
-	}
-	json, err := c.Json()
+type APIHandler struct {
+	client *client.SlskClient
+}
+
+func NewAPIHandler(client *client.SlskClient) *APIHandler {
+	return &APIHandler{client: client}
+}
+
+func (h *APIHandler) GetSlskClient(w http.ResponseWriter, r *http.Request) {
+	json, err := h.client.Json()
 	if err != nil {
 		http.Error(w, "Cannot marshal slskClient to json", http.StatusInternalServerError)
 	}
@@ -25,7 +28,7 @@ func GetSlskClient(w http.ResponseWriter, r *http.Request) {
 }
 
 // check if our port is open to receive incoming connections
-func CheckPort(w http.ResponseWriter, r *http.Request) {
+func (h *APIHandler) CheckPort(w http.ResponseWriter, r *http.Request) {
 	port := r.URL.Query().Get("port")
 	if port == "" {
 		http.Error(w, "empty port param", http.StatusBadRequest)
@@ -45,18 +48,13 @@ func CheckPort(w http.ResponseWriter, r *http.Request) {
 	}
 	isOpen := (strings.Contains(string(body), fmt.Sprintf("Port: %s/tcp open", port)))
 	if isOpen {
-		w.Write([]byte(fmt.Sprintf("Port %s is open", port)))
+		w.Write(fmt.Appendf(nil, "Port %s is open", port))
 	} else {
-		w.Write([]byte(fmt.Sprintf("Port %s is closed", port)))
+		w.Write(fmt.Appendf(nil, "Port %s is closed", port))
 	}
 }
 
-func ConnectToPeer(w http.ResponseWriter, r *http.Request) {
-	c, ok := r.Context().Value("slskClient").(*client.SlskClient)
-	if !ok {
-		http.Error(w, "Cannot retrieve slskClient from context", http.StatusInternalServerError)
-		return
-	}
+func (h *APIHandler) ConnectToPeer(w http.ResponseWriter, r *http.Request) {
 	username := chi.URLParam(r, "username")
 	connType := chi.URLParam(r, "connType")
 	if username == "" || connType == "" {
@@ -64,12 +62,12 @@ func ConnectToPeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c.ConnectToPeer(username, connType, 0)
+	h.client.ConnectToPeer(username, connType, 0)
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Connection to peer initiated"})
 }
 
-func Download(w http.ResponseWriter, r *http.Request) {
+func (h *APIHandler) Download(w http.ResponseWriter, r *http.Request) {
 	username := r.URL.Query().Get("username")
 	connType := r.URL.Query().Get("connType")
 	filename := r.URL.Query().Get("filename")
@@ -78,13 +76,7 @@ func Download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c, ok := r.Context().Value("slskClient").(*client.SlskClient)
-	if !ok {
-		http.Error(w, "Cannot retrieve slskClient from context", http.StatusInternalServerError)
-		return
-	}
-
-	peer := c.PeerManager.GetPeer(username)
+	peer := h.client.PeerManager.GetPeer(username)
 	if peer == nil {
 		http.Error(w, "Not connected to the specified peer", http.StatusBadRequest)
 		return
@@ -96,36 +88,25 @@ func Download(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"message": "Download queued"})
 }
 
-func Search(w http.ResponseWriter, r *http.Request) {
+func (h *APIHandler) Search(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("query")
 	if query == "" {
 		http.Error(w, "Missing query parameter", http.StatusBadRequest)
 		return
 	}
 
-	c, ok := r.Context().Value("slskClient").(*client.SlskClient)
-	if !ok {
-		http.Error(w, "Cannot retrieve slskClient from context", http.StatusInternalServerError)
-		return
-	}
-
-	c.FileSearch(query)
+	h.client.FileSearch(query)
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Search initiated"})
 }
 
-func JoinRoom(w http.ResponseWriter, r *http.Request) {
+func (h *APIHandler) JoinRoom(w http.ResponseWriter, r *http.Request) {
 	room := r.URL.Query().Get("room")
 	if room == "" {
 		http.Error(w, "Missing room parameter", http.StatusBadRequest)
 		return
 	}
-	c, ok := r.Context().Value("slskClient").(*client.SlskClient)
-	if !ok {
-		http.Error(w, "Cannot retrieve slskClient from context", http.StatusInternalServerError)
-		return
-	}
-	c.JoinRoom(room)
+	h.client.JoinRoom(room)
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Joined room"})
 }
