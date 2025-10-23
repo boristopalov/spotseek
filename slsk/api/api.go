@@ -89,15 +89,84 @@ func (h *APIHandler) Download(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandler) Search(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query().Get("query")
-	if query == "" {
-		http.Error(w, "Missing query parameter", http.StatusBadRequest)
+	var req struct {
+		Query string `json:"query"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	h.client.FileSearch(query)
+	if req.Query == "" {
+		http.Error(w, "Missing query field", http.StatusBadRequest)
+		return
+	}
+
+	searchID := h.client.FileSearch(req.Query)
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Search initiated"})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"searchId": searchID,
+		"query":    req.Query,
+	})
+}
+
+func (h *APIHandler) GetSearch(w http.ResponseWriter, r *http.Request) {
+	searchIDStr := chi.URLParam(r, "id")
+	if searchIDStr == "" {
+		http.Error(w, "Missing search ID", http.StatusBadRequest)
+		return
+	}
+
+	var searchID uint32
+	if _, err := fmt.Sscanf(searchIDStr, "%d", &searchID); err != nil {
+		http.Error(w, "Invalid search ID", http.StatusBadRequest)
+		return
+	}
+
+	search, err := h.client.SearchManager.GetSearch(searchID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"id":          search.ID,
+		"query":       search.Query,
+		"status":      search.GetStatus(),
+		"createdAt":   search.CreatedAt,
+		"resultCount": search.GetResultCount(),
+	})
+}
+
+func (h *APIHandler) GetSearchResults(w http.ResponseWriter, r *http.Request) {
+	searchIDStr := chi.URLParam(r, "id")
+	if searchIDStr == "" {
+		http.Error(w, "Missing search ID", http.StatusBadRequest)
+		return
+	}
+
+	var searchID uint32
+	if _, err := fmt.Sscanf(searchIDStr, "%d", &searchID); err != nil {
+		http.Error(w, "Invalid search ID", http.StatusBadRequest)
+		return
+	}
+
+	search, err := h.client.SearchManager.GetSearch(searchID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	results := search.GetResults()
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"searchId": searchID,
+		"query":    search.Query,
+		"status":   search.GetStatus(),
+		"results":  results,
+	})
 }
 
 func (h *APIHandler) JoinRoom(w http.ResponseWriter, r *http.Request) {

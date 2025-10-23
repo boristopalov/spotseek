@@ -11,6 +11,10 @@ import (
 	"time"
 )
 
+type SearchManager interface {
+	AddResult(token uint32, result fileshare.SearchResult) error
+}
+
 type PeerManager struct {
 	username        string
 	peers           map[string]*Peer // username --> Peer info
@@ -18,14 +22,14 @@ type PeerManager struct {
 	peerCh          chan PeerEvent
 	distribSearchCh chan DistribSearchMsg
 	children        []DistributedPeer
-	SearchResults   map[uint32][]fileshare.SearchResult // token --> search results
+	searchManager   SearchManager                       // manages search state and results
 	SearchRequests  map[string][]fileshare.SearchResult // peer username --> incoming distributed search requests
 	transferReqCh   chan FileTransfer                   // used when peers request files from us
 	logger          *slog.Logger
 	shares          *fileshare.Shared
 }
 
-func NewPeerManager(username string, distribSearchCh chan DistribSearchMsg, transferReqCh chan FileTransfer, shares *fileshare.Shared, logger *slog.Logger) *PeerManager {
+func NewPeerManager(username string, distribSearchCh chan DistribSearchMsg, transferReqCh chan FileTransfer, shares *fileshare.Shared, searchManager SearchManager, logger *slog.Logger) *PeerManager {
 	m := &PeerManager{
 		username:        username,
 		peers:           make(map[string]*Peer),
@@ -33,7 +37,7 @@ func NewPeerManager(username string, distribSearchCh chan DistribSearchMsg, tran
 		distribSearchCh: distribSearchCh,
 		transferReqCh:   transferReqCh,
 		children:        make([]DistributedPeer, 0),
-		SearchResults:   make(map[uint32][]fileshare.SearchResult),
+		searchManager:   searchManager,
 		logger:          logger,
 		shares:          shares,
 	}
@@ -200,9 +204,10 @@ func (manager *PeerManager) listenForEvents() {
 		// incoming file search response
 		case FileSearchResponse:
 			msg := event.Msg.(FileSearchMsg)
-			manager.SearchResults[msg.Token] =
-				append(manager.SearchResults[msg.Token], msg.Results)
-			// manager.clientCh <- event
+			err := manager.searchManager.AddResult(msg.Token, msg.Results)
+			if err != nil {
+				manager.logger.Warn("Failed to add search result", "token", msg.Token, "err", err)
+			}
 
 		case UploadComplete:
 			manager.RemovePeer(event.Peer)

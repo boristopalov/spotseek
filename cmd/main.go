@@ -91,7 +91,9 @@ func startServer(slskClient *client.SlskClient) error {
 	handler := api.NewAPIHandler(slskClient)
 
 	mux.Get("/connect/user/{username}/conn/{connType}", handler.ConnectToPeer)
-	mux.Get("/search", handler.Search)
+	mux.Post("/search", handler.Search)
+	mux.Get("/search/{id}", handler.GetSearch)
+	mux.Get("/search/{id}/results", handler.GetSearchResults)
 	mux.Get("/download", handler.Download)
 	mux.Get("/join", handler.JoinRoom)
 	mux.Get("/slsk-client", handler.GetSlskClient)

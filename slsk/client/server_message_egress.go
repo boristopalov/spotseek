@@ -2,7 +2,6 @@ package client
 
 import (
 	"math/rand/v2"
-	"spotseek/slsk/fileshare"
 	"spotseek/slsk/messages"
 )
 
@@ -40,15 +39,17 @@ func (c *SlskClient) GetPeerAddress(username string) {
 }
 
 // Server forwards our query to the distributed network
-func (c *SlskClient) FileSearch(query string) {
+// Returns the search token/ID that can be used to retrieve results
+func (c *SlskClient) FileSearch(query string) uint32 {
 	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	t := uint32(rand.Int32()) // rand.Int32() returns non-negative, this is safe
-	c.mu.Lock()
-	c.PeerManager.SearchResults[t] = make([]fileshare.SearchResult, 0)
-	c.mu.Unlock()
+
+	c.SearchManager.CreateSearch(t, query)
+
 	c.logger.Info("Sending FileSearch", "token", t, "query", query)
 	msg := mb.FileSearch(t, query)
 	c.Send(msg)
+	return t
 }
 
 func (c *SlskClient) ConnectToPeer(username string, connType string, token uint32) {

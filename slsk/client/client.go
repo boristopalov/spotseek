@@ -73,6 +73,7 @@ type SlskClient struct {
 	PendingTokens    map[uint32]PendingTokenConn // token --> connection info
 	JoinedRooms      map[string]*Room            // room name --> users in room
 	PeerManager      *peer.PeerManager
+	SearchManager    *SearchManager
 
 	DistribSearchCh      chan peer.DistribSearchMsg       // used for incoming distributed msgs
 	DistribSearchResults map[string][]distribSearchResult // username -> token and results
@@ -91,7 +92,9 @@ func NewSlskClient(username string, host string, port int, logger *slog.Logger) 
 	shares := fileshare.NewShared(config.GetSettings(), logger)
 	distributedsearchCh := make(chan peer.DistribSearchMsg)
 	transferReqCh := make(chan peer.FileTransfer)
-	return &SlskClient{
+	searchManager := NewSearchManager(5*time.Minute, logger)
+
+	client := &SlskClient{
 		Username:             username,
 		Host:                 host,
 		Port:                 port,
@@ -102,10 +105,13 @@ func NewSlskClient(username string, host string, port int, logger *slog.Logger) 
 		DistribSearchResults: make(map[string][]distribSearchResult),
 		TransferReqCh:        transferReqCh,
 		PendingTransferReqs:  make(map[string]peer.FileTransfer),
-		PeerManager:          peer.NewPeerManager(username, distributedsearchCh, transferReqCh, shares, logger),
+		SearchManager:        searchManager,
 		logger:               logger,
 		shares:               shares,
 	}
+
+	client.PeerManager = peer.NewPeerManager(username, distributedsearchCh, transferReqCh, shares, searchManager, logger)
+	return client
 }
 
 // Connect to soulseek server and login
