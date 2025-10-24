@@ -196,16 +196,28 @@ func (c *SlskClient) HandleGetPeerAddress(mr *messages.MessageReader) (map[strin
 	go func() {
 		connInfo := c.GetPendingPeer(username)
 		err := c.PeerManager.ConnectToPeer(host, port, username, connInfo.connType, connInfo.token, connInfo.privileged)
-		if err != nil {
-			c.RemovePendingPeer(username)
-		} else {
-			// send any search results we have stored for this peer
+		// Always remove pending peer entry whether connection succeeded or failed
+		c.RemovePendingPeer(username)
+
+		if err == nil {
 			peer := c.PeerManager.GetPeer(username)
-			storedSearchResultsForPeer := c.DistribSearchResults[username]
-			for _, res := range storedSearchResultsForPeer {
-				peer.FileSearchResponse(username, res.token, res.files)
+			if peer != nil {
+				// send any search results we have stored for this peer
+				storedSearchResultsForPeer := c.DistribSearchResults[username]
+				for _, res := range storedSearchResultsForPeer {
+					peer.FileSearchResponse(username, res.token, res.files)
+				}
+				delete(c.DistribSearchResults, username)
+
+				// send QueueUpload for any pending downloads
+				pendingDownloads := c.DownloadManager.GetPendingForPeer(username)
+				for _, dl := range pendingDownloads {
+					peer.QueueUpload(dl.Filename)
+					// Update download status from "connecting" to "queued"
+					dl.UpdateStatus("queued")
+				}
+				c.DownloadManager.ClearPendingForPeer(username)
 			}
-			delete(c.DistribSearchResults, username)
 		}
 	}()
 	return decoded, nil
@@ -428,10 +440,20 @@ func (c *SlskClient) HandleConnectToPeer(mr *messages.MessageReader) (map[string
 	decoded["token"] = token
 	decoded["privileged"] = privileged
 
-	c.logger.Info("Received ConnectToPeer", "username", username, "ip", ip, "port", port, "token", token, "privileged", privileged)
+	c.logger.Info("Received ConnectToPeer (indirect connection request)", "username", username, "ip", ip, "port", port, "token", token, "privileged", privileged)
+
+	// Check if we already have a connection from this peer (they may have sent PeerInit first)
+	existingPeer := c.PeerManager.GetPeer(username)
+	if existingPeer != nil && existingPeer.ConnType == connType {
+		c.logger.Info("Peer connection already exists", "username", username, "connType", connType)
+		return decoded, nil
+	}
+
+	// Attempt to pierce their firewall by connecting and sending PierceFirewall message
 	go func() {
-		err := c.PeerManager.ConnectToPeer(ip, port, username, connType, token, privileged)
+		err := c.PeerManager.PierceFirewallToPeer(ip, port, username, connType, token, privileged)
 		if err != nil {
+			c.logger.Warn("Failed to pierce firewall", "username", username, "err", err)
 			c.CantConnectToPeer(token, username)
 		}
 	}()

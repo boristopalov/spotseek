@@ -17,10 +17,11 @@ type SearchManager interface {
 }
 
 type DownloadManager interface {
-	UpdateProgress(token uint32, bytesReceived uint64) error
-	UpdateStatus(token uint32, status downloads.DownloadStatus) error
-	SetError(token uint32, errorMsg string) error
-	SetQueuePosition(token uint32, position uint32) error
+	UpdateProgress(username string, filename string, bytesReceived uint64) error
+	UpdateStatus(username string, filename string, status downloads.DownloadStatus) error
+	SetError(userame string, filename string, errorMsg string) error
+	SetQueuePosition(username string, filename string, position uint32) error
+	SetToken(username string, filename string, token uint32) error
 }
 
 type PeerManager struct {
@@ -62,27 +63,49 @@ func (manager *PeerManager) RemovePeer(peer *Peer) {
 	manager.mu.Unlock()
 }
 
-// 1. Server receives ConnectToPeer
-// 2. This method is called
+func (manager *PeerManager) GetAllPeers() map[string]*Peer {
+	return manager.peers
+}
+
+// ConnectToPeer establishes a direct connection to a peer (we initiate with PeerInit)
+// This is called after receiving GetPeerAddress from the server
 func (manager *PeerManager) ConnectToPeer(host string, port uint32, username string, connType string, token uint32, privileged uint8) error {
 	peer := manager.AddPeer(username, connType, host, port, token, privileged, nil)
 	if peer == nil {
 		return fmt.Errorf("cannot connect to user %s with connType %s", username, connType)
 	}
 
+	// For direct connections, we always send PeerInit (code 1)
+	peer.PeerInit(manager.username, peer.ConnType, peer.Token)
+
 	if peer.ConnType == "F" {
-		peer.PierceFirewall(peer.Token)
 		go peer.FileListen()
-	}
-	if peer.ConnType == "D" {
-		peer.PeerInit(manager.username, peer.ConnType, peer.Token)
-		go peer.Listen()
 	} else {
-		peer.PierceFirewall(peer.Token)
 		go peer.Listen()
 	}
 
-	manager.logger.Info("Connected to peer", "username", username)
+	manager.logger.Info("Connected to peer (direct)", "username", username, "connType", connType)
+	return nil
+}
+
+// PierceFirewallToPeer establishes an indirect connection to a peer (we respond with PierceFirewall)
+// This is called after receiving ConnectToPeer from the server
+func (manager *PeerManager) PierceFirewallToPeer(host string, port uint32, username string, connType string, token uint32, privileged uint8) error {
+	peer := manager.AddPeer(username, connType, host, port, token, privileged, nil)
+	if peer == nil {
+		return fmt.Errorf("cannot connect to user %s with connType %s", username, connType)
+	}
+
+	// For indirect connections, we always send PierceFirewall (code 0)
+	peer.PierceFirewall(peer.Token)
+
+	if peer.ConnType == "F" {
+		go peer.FileListen()
+	} else {
+		go peer.Listen()
+	}
+
+	manager.logger.Info("Connected to peer (indirect/pierce firewall)", "username", username, "connType", connType)
 	return nil
 }
 
@@ -178,6 +201,12 @@ func (manager *PeerManager) listenForEvents() {
 	for event := range manager.peerCh {
 		switch event.Type {
 		case PeerDisconnected:
+			manager.logger.Info("Peer Disconnected from us",
+				"username", event.Peer.Username,
+				"host", event.Peer.Host,
+				"port", event.Peer.Port,
+				"connType", event.Peer.ConnType,
+			)
 			event.Peer.Close()
 			manager.RemovePeer(event.Peer)
 
@@ -186,6 +215,18 @@ func (manager *PeerManager) listenForEvents() {
 		// see client.listenForTransferRequests()
 		case TransferRequest:
 			msg := event.Msg.(TransferRequestMsg)
+
+			// Link the download to the peer's transfer token
+			// The peer generated this token and we need it for the F connection
+			err := manager.downloadManager.SetToken(msg.PeerUsername, msg.Filename, msg.Token)
+			if err != nil {
+				manager.logger.Warn("Failed to link download to transfer token",
+					"username", msg.PeerUsername,
+					"filename", msg.Filename,
+					"token", msg.Token,
+					"error", err)
+			}
+
 			manager.transferReqCh <- FileTransfer{
 				Filename:     msg.Filename,
 				Token:        msg.Token,
@@ -225,34 +266,47 @@ func (manager *PeerManager) listenForEvents() {
 
 		case DownloadProgress:
 			msg := event.Msg.(DownloadProgressMsg)
-			err := manager.downloadManager.UpdateProgress(msg.Token, msg.BytesReceived)
+			err := manager.downloadManager.UpdateProgress(msg.Username, msg.Filename, msg.BytesReceived)
 			if err != nil {
-				manager.logger.Warn("Failed to update download progress", "token", msg.Token, "err", err)
+				manager.logger.Warn("Failed to update download progress",
+					"username", msg.Username,
+					"filename", msg.Filename,
+					"err", err)
 			}
 
 		case DownloadComplete:
 			msg := event.Msg.(DownloadCompleteMsg)
-			err := manager.downloadManager.UpdateStatus(msg.Token, "completed")
+			err := manager.downloadManager.UpdateStatus(msg.Username, msg.Filename, "completed")
 			if err != nil {
-				manager.logger.Warn("Failed to update download status", "token", msg.Token, "err", err)
+				manager.logger.Warn("Failed to update download status",
+					"username", msg.Username,
+					"filename", msg.Filename,
+					"err", err)
 			}
 			event.Peer.Close()
 			manager.RemovePeer(event.Peer)
 
 		case DownloadFailed:
 			msg := event.Msg.(DownloadFailedMsg)
-			err := manager.downloadManager.SetError(msg.Token, msg.Error)
+			err := manager.downloadManager.SetError(msg.Username, msg.Filename, msg.Error)
 			if err != nil {
-				manager.logger.Warn("Failed to set download error", "token", msg.Token, "err", err)
+				manager.logger.Warn("Failed to set download error",
+					"username", msg.Username,
+					"filename", msg.Filename,
+					"err", err)
 			}
 			event.Peer.Close()
 			manager.RemovePeer(event.Peer)
 
 		case PlaceInQueueResponse:
 			msg := event.Msg.(PlaceInQueueMsg)
-			err := manager.downloadManager.SetQueuePosition(msg.Place, msg.Place)
+			err := manager.downloadManager.SetQueuePosition(event.Peer.Username, msg.Filename, msg.Place)
 			if err != nil {
-				manager.logger.Debug("Failed to set queue position (may not be a download)", "place", msg.Place, "err", err)
+				manager.logger.Debug("Failed to set queue position (may not be a download)",
+					"username", event.Peer.Username,
+					"filename", msg.Filename,
+					"place", msg.Place,
+					"err", err)
 			}
 
 		}

@@ -74,16 +74,18 @@ type UploadRequestMsg struct {
 }
 
 type DownloadProgressMsg struct {
-	Token         uint32
+	Username      string
+	Filename      string
 	BytesReceived uint64
 }
 
 type DownloadCompleteMsg struct {
-	Token    uint32
+	Username string
 	Filename string
 }
 
 type DownloadFailedMsg struct {
-	Token uint32
-	Error string
+	Username string
+	Filename string
+	Error    string
 }

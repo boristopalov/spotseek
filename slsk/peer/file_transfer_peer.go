@@ -8,6 +8,7 @@ import (
 	"path"
 	"spotseek/config"
 	"spotseek/slsk/messages"
+	"strings"
 	"time"
 )
 
@@ -43,7 +44,7 @@ func (peer *fileTransferPeer) FileListen() {
 		return
 	}
 
-	// this might not work
+	// Set initial timeout for reading the token (10 seconds for connection establishment)
 	peer.PeerConnection.Conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	tokenBuf := make([]byte, 4)
 	if _, err := peer.PeerConnection.Read(tokenBuf); err != nil {
@@ -67,22 +68,65 @@ func (peer *fileTransferPeer) FileListen() {
 
 	peer.FileOffset(transfer.Offset)
 
+	// After sending FileOffset, give the peer up to 30 seconds to start sending data
+	// This accounts for upload queue processing, file opening, and seeking to offset
+	peer.PeerConnection.Conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+
 	readBuffer := make([]byte, 4096)
 	for {
 		n, err := peer.PeerConnection.Read(readBuffer)
 		if err != nil {
 			if err == io.EOF {
-				peer.logger.Info("File transfer completed",
-					"peer", peer.Username,
-					"filename", transfer.Filename)
+				// Check if we received all expected bytes
+				if uint64(transfer.Buffer.Len()) >= transfer.Size {
+					peer.logger.Info("File transfer completed (EOF after all bytes received)",
+						"peer", peer.Username,
+						"filename", transfer.Filename,
+						"bytesReceived", transfer.Buffer.Len(),
+						"expectedSize", transfer.Size)
 
-				// Send download failed event (unexpected EOF)
+					// Write file to disk
+					writeErr := writeToDownloadsDir(extractBasename(transfer.Filename), transfer.Buffer.Bytes())
+					if writeErr != nil {
+						peer.logger.Error("error writing file to disk", "error", writeErr)
+						peer.mgrCh <- PeerEvent{
+							Type: DownloadFailed,
+							Peer: peer,
+							Msg: DownloadFailedMsg{
+								Username: peer.Username,
+								Filename: transfer.Filename,
+								Error:    fmt.Sprintf("disk write error: %v", writeErr),
+							},
+						}
+						return
+					}
+
+					// Send download complete event
+					peer.mgrCh <- PeerEvent{
+						Type: DownloadComplete,
+						Peer: peer,
+						Msg: DownloadCompleteMsg{
+							Username: peer.Username,
+							Filename: transfer.Filename,
+						},
+					}
+					return
+				}
+
+				// EOF before receiving all bytes - incomplete transfer
+				peer.logger.Warn("Incomplete file transfer (EOF)",
+					"peer", peer.Username,
+					"filename", transfer.Filename,
+					"bytesReceived", transfer.Buffer.Len(),
+					"expectedSize", transfer.Size)
+
 				peer.mgrCh <- PeerEvent{
 					Type: DownloadFailed,
 					Peer: peer,
 					Msg: DownloadFailedMsg{
-						Token: token,
-						Error: "Unexpected EOF",
+						Username: peer.Username,
+						Filename: transfer.Filename,
+						Error:    fmt.Sprintf("Incomplete transfer: received %d/%d bytes", transfer.Buffer.Len(), transfer.Size),
 					},
 				}
 				return
@@ -94,13 +138,18 @@ func (peer *fileTransferPeer) FileListen() {
 				Type: DownloadFailed,
 				Peer: peer,
 				Msg: DownloadFailedMsg{
-					Token: token,
-					Error: err.Error(),
+					Username: peer.Username,
+					Filename: transfer.Filename,
+					Error:    err.Error(),
 				},
 			}
 			return
 		}
 		peer.logger.Debug("File transfer data received", "n", n, "token", token)
+
+		// Reset read deadline after each successful chunk (30 seconds per chunk)
+		// This keeps the connection alive during active transfer
+		peer.PeerConnection.Conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 
 		// Write to transfer buffer
 		if _, err := transfer.Buffer.Write(readBuffer[:n]); err != nil {
@@ -111,8 +160,9 @@ func (peer *fileTransferPeer) FileListen() {
 				Type: DownloadFailed,
 				Peer: peer,
 				Msg: DownloadFailedMsg{
-					Token: token,
-					Error: fmt.Sprintf("buffer write error: %v", err),
+					Username: peer.Username,
+					Filename: transfer.Filename,
+					Error:    fmt.Sprintf("buffer write error: %v", err),
 				},
 			}
 			return
@@ -125,7 +175,8 @@ func (peer *fileTransferPeer) FileListen() {
 			Type: DownloadProgress,
 			Peer: peer,
 			Msg: DownloadProgressMsg{
-				Token:         token,
+				Username:      peer.Username,
+				Filename:      transfer.Filename,
 				BytesReceived: transfer.Offset,
 			},
 		}
@@ -133,7 +184,7 @@ func (peer *fileTransferPeer) FileListen() {
 		// Check if transfer is complete
 		if uint64(transfer.Buffer.Len()) >= transfer.Size {
 			peer.logger.Info("File transfer complete", "filename", transfer.Filename, "token", token)
-			err := writeToDownloadsDir(transfer.Filename, transfer.Buffer.Bytes())
+			err := writeToDownloadsDir(extractBasename(transfer.Filename), transfer.Buffer.Bytes())
 			if err != nil {
 				peer.logger.Error("error writing file to disk", "error", err)
 
@@ -142,8 +193,9 @@ func (peer *fileTransferPeer) FileListen() {
 					Type: DownloadFailed,
 					Peer: peer,
 					Msg: DownloadFailedMsg{
-						Token: token,
-						Error: fmt.Sprintf("disk write error: %v", err),
+						Username: peer.Username,
+						Filename: transfer.Filename,
+						Error:    fmt.Sprintf("disk write error: %v", err),
 					},
 				}
 				return
@@ -154,7 +206,7 @@ func (peer *fileTransferPeer) FileListen() {
 				Type: DownloadComplete,
 				Peer: peer,
 				Msg: DownloadCompleteMsg{
-					Token:    token,
+					Username: peer.Username,
 					Filename: transfer.Filename,
 				},
 			}
@@ -219,6 +271,14 @@ func (peer *fileTransferPeer) UploadFile(ft FileTransfer) {
 	}
 	peer.logger.Info("Upload complete", "filename", ft.Filename)
 	peer.mgrCh <- PeerEvent{Type: UploadComplete, Peer: peer, Msg: UploadCompleteMsg{Filename: ft.Filename, Token: ft.Token}}
+}
+
+// extractBasename extracts the filename from a path that may use either
+// Windows backslashes or Unix forward slashes, regardless of the current OS.
+func extractBasename(fullPath string) string {
+	normalized := strings.ReplaceAll(fullPath, "\\", "/")
+	// Use path.Base which always works with forward slashes
+	return path.Base(normalized)
 }
 
 func writeToDownloadsDir(filename string, data []byte) error {

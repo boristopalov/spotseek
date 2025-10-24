@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/rand/v2"
 	"net/http"
 	"spotseek/slsk/client"
 	"strings"
@@ -86,49 +85,42 @@ func (h *APIHandler) Download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate transfer token
-	token := uint32(rand.Int32())
+	// Create download record (no token yet - peer will provide it)
+	download := h.client.DownloadManager.CreateDownload(req.SearchID, req.Username, req.Filename, req.Size)
 
-	// Create download record
-	download := h.client.DownloadManager.CreateDownload(req.SearchID, req.Username, req.Filename, req.Size, token)
-
-	// Check if peer connection exists, if not connect
+	// Check if peer connection exists
 	peer := h.client.PeerManager.GetPeer(req.Username)
 	if peer == nil {
+		// Peer not connected yet - add to pending downloads queue in DownloadManager
+		download.UpdateStatus("connecting")
+		h.client.DownloadManager.AddPendingForPeer(req.Username, req.Filename)
+
 		// Auto-connect to peer
 		h.client.ConnectToPeer(req.Username, "P", 0)
-		download.UpdateStatus("connecting")
-	}
-
-	// Queue the upload (initiate download from our perspective)
-	peer = h.client.PeerManager.GetPeer(req.Username)
-	if peer != nil {
+	} else {
+		// Peer already connected - send QueueUpload immediately
+		download.UpdateStatus("queued")
 		peer.QueueUpload(req.Filename)
 	}
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"downloadId": download.ID,
-		"status":     download.Status,
-		"username":   download.Username,
-		"filename":   download.Filename,
+		"status":   download.Status,
+		"username": download.Username,
+		"filename": download.Filename,
 	})
 }
 
 func (h *APIHandler) GetDownload(w http.ResponseWriter, r *http.Request) {
-	downloadIDStr := chi.URLParam(r, "id")
-	if downloadIDStr == "" {
-		http.Error(w, "Missing download ID", http.StatusBadRequest)
+	username := chi.URLParam(r, "username")
+	filename := chi.URLParam(r, "filename")
+
+	if username == "" || filename == "" {
+		http.Error(w, "Missing username or filename", http.StatusBadRequest)
 		return
 	}
 
-	var downloadID uint32
-	if _, err := fmt.Sscanf(downloadIDStr, "%d", &downloadID); err != nil {
-		http.Error(w, "Invalid download ID", http.StatusBadRequest)
-		return
-	}
-
-	download, err := h.client.DownloadManager.GetDownload(downloadID)
+	download, err := h.client.DownloadManager.GetDownload(username, filename)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -148,19 +140,15 @@ func (h *APIHandler) ListDownloads(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandler) CancelDownload(w http.ResponseWriter, r *http.Request) {
-	downloadIDStr := chi.URLParam(r, "id")
-	if downloadIDStr == "" {
-		http.Error(w, "Missing download ID", http.StatusBadRequest)
+	username := chi.URLParam(r, "username")
+	filename := chi.URLParam(r, "filename")
+
+	if username == "" || filename == "" {
+		http.Error(w, "Missing username or filename", http.StatusBadRequest)
 		return
 	}
 
-	var downloadID uint32
-	if _, err := fmt.Sscanf(downloadIDStr, "%d", &downloadID); err != nil {
-		http.Error(w, "Invalid download ID", http.StatusBadRequest)
-		return
-	}
-
-	err := h.client.DownloadManager.CancelDownload(downloadID)
+	err := h.client.DownloadManager.CancelDownload(username, filename)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -260,4 +248,10 @@ func (h *APIHandler) JoinRoom(w http.ResponseWriter, r *http.Request) {
 	h.client.JoinRoom(room)
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Joined room"})
+}
+
+func (h *APIHandler) GetPeers(w http.ResponseWriter, r *http.Request) {
+	peers := h.client.PeerManager.GetAllPeers()
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(peers)
 }

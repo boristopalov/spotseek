@@ -19,8 +19,12 @@ const (
 	DownloadCancelled   DownloadStatus = "cancelled"
 )
 
+type DownloadKey struct {
+	Username string
+	Filename string
+}
+
 type Download struct {
-	ID            uint32         `json:"id"`
 	SearchID      *uint32        `json:"searchId,omitempty"` // Optional link to search
 	Username      string         `json:"username"`
 	Filename      string         `json:"filename"` // Full virtual path
@@ -29,10 +33,14 @@ type Download struct {
 	BytesReceived uint64         `json:"bytesReceived"` // Progress tracking
 	QueuePosition *uint32        `json:"queuePosition,omitempty"`
 	Error         string         `json:"error,omitempty"`
-	Token         uint32         `json:"token"` // Transfer token for tracking
+	Token         uint32         `json:"token,omitempty"` // Peer's transfer token (for debugging/logs only)
 	CreatedAt     time.Time      `json:"createdAt"`
 	CompletedAt   *time.Time     `json:"completedAt,omitempty"`
 	mu            sync.RWMutex   `json:"-"`
+}
+
+func (d *Download) InProgress() bool {
+	return d.Status == DownloadPending || d.Status == DownloadDownloading
 }
 
 func (d *Download) GetStatus() DownloadStatus {
@@ -83,80 +91,66 @@ func (d *Download) SetQueuePosition(position uint32) {
 }
 
 type DownloadManager struct {
-	downloads      map[uint32]*Download // downloadID -> Download
-	tokenToID      map[uint32]uint32    // transferToken -> downloadID
-	mu             sync.RWMutex
-	ttl            time.Duration
-	logger         *slog.Logger
-	nextDownloadID uint32
+	downloads     map[DownloadKey]*Download // (username, filename) -> Download
+	pendingByPeer map[string][]DownloadKey  // username -> downloads waiting for peer connection
+	mu            sync.RWMutex
+	ttl           time.Duration
+	logger        *slog.Logger
 }
 
 func NewDownloadManager(ttl time.Duration, logger *slog.Logger) *DownloadManager {
 	dm := &DownloadManager{
-		downloads:      make(map[uint32]*Download),
-		tokenToID:      make(map[uint32]uint32),
-		ttl:            ttl,
-		logger:         logger,
-		nextDownloadID: 1,
+		downloads:     make(map[DownloadKey]*Download),
+		pendingByPeer: make(map[string][]DownloadKey),
+		ttl:           ttl,
+		logger:        logger,
 	}
 	go dm.cleanupCompletedDownloads()
 	return dm
 }
 
-func (dm *DownloadManager) CreateDownload(searchID *uint32, username, filename string, size uint64, token uint32) *Download {
+func (dm *DownloadManager) CreateDownload(searchID *uint32, username, filename string, size uint64) *Download {
 	dm.mu.Lock()
 	defer dm.mu.Unlock()
 
-	downloadID := dm.nextDownloadID
-	dm.nextDownloadID++
+	key := DownloadKey{Username: username, Filename: filename}
+
+	// Check if already exists
+	if existing, exists := dm.downloads[key]; exists {
+		dm.logger.Warn("Download already exists",
+			"username", username,
+			"filename", filename,
+			"status", existing.Status)
+		return existing
+	}
 
 	download := &Download{
-		ID:        downloadID,
 		SearchID:  searchID,
 		Username:  username,
 		Filename:  filename,
 		Size:      size,
 		Status:    DownloadPending,
-		Token:     token,
 		CreatedAt: time.Now(),
 	}
 
-	dm.downloads[downloadID] = download
-	dm.tokenToID[token] = downloadID
+	dm.downloads[key] = download
 
 	dm.logger.Info("Download created",
-		"downloadId", downloadID,
 		"username", username,
 		"filename", filename,
-		"token", token,
 	)
 
 	return download
 }
 
-func (dm *DownloadManager) GetDownload(id uint32) (*Download, error) {
+func (dm *DownloadManager) GetDownload(username, filename string) (*Download, error) {
 	dm.mu.RLock()
 	defer dm.mu.RUnlock()
 
-	download, exists := dm.downloads[id]
+	key := DownloadKey{Username: username, Filename: filename}
+	download, exists := dm.downloads[key]
 	if !exists {
-		return nil, fmt.Errorf("download not found: %d", id)
-	}
-	return download, nil
-}
-
-func (dm *DownloadManager) GetDownloadByToken(token uint32) (*Download, error) {
-	dm.mu.RLock()
-	defer dm.mu.RUnlock()
-
-	downloadID, exists := dm.tokenToID[token]
-	if !exists {
-		return nil, fmt.Errorf("no download found for token: %d", token)
-	}
-
-	download, exists := dm.downloads[downloadID]
-	if !exists {
-		return nil, fmt.Errorf("download not found: %d", downloadID)
+		return nil, fmt.Errorf("download not found: %s/%s", username, filename)
 	}
 	return download, nil
 }
@@ -172,19 +166,26 @@ func (dm *DownloadManager) ListDownloads() []*Download {
 	return downloads
 }
 
-func (dm *DownloadManager) CancelDownload(id uint32) error {
-	download, err := dm.GetDownload(id)
+func (dm *DownloadManager) CancelDownload(username, filename string) error {
+	download, err := dm.GetDownload(username, filename)
 	if err != nil {
 		return err
 	}
 
 	download.UpdateStatus(DownloadCancelled)
-	dm.logger.Info("Download cancelled", "downloadId", id)
+
+	// Remove from active downloads
+	dm.mu.Lock()
+	key := DownloadKey{Username: username, Filename: filename}
+	delete(dm.downloads, key)
+	dm.mu.Unlock()
+
+	dm.logger.Info("Download cancelled", "username", username, "filename", filename)
 	return nil
 }
 
-func (dm *DownloadManager) UpdateProgress(token uint32, bytesReceived uint64) error {
-	download, err := dm.GetDownloadByToken(token)
+func (dm *DownloadManager) UpdateProgress(username, filename string, bytesReceived uint64) error {
+	download, err := dm.GetDownload(username, filename)
 	if err != nil {
 		return err
 	}
@@ -193,48 +194,81 @@ func (dm *DownloadManager) UpdateProgress(token uint32, bytesReceived uint64) er
 	return nil
 }
 
-func (dm *DownloadManager) UpdateStatus(token uint32, status DownloadStatus) error {
-	download, err := dm.GetDownloadByToken(token)
+func (dm *DownloadManager) UpdateStatus(username, filename string, status DownloadStatus) error {
+	download, err := dm.GetDownload(username, filename)
 	if err != nil {
 		return err
 	}
 
 	download.UpdateStatus(status)
 	dm.logger.Info("Download status updated",
-		"token", token,
-		"downloadId", download.ID,
+		"username", username,
+		"filename", filename,
 		"status", status,
 	)
+
+	// Remove from active downloads on terminal state (allows re-download)
+	if status == DownloadCompleted || status == DownloadFailed || status == DownloadCancelled {
+		dm.mu.Lock()
+		key := DownloadKey{Username: username, Filename: filename}
+		delete(dm.downloads, key)
+		dm.mu.Unlock()
+	}
+
 	return nil
 }
 
-func (dm *DownloadManager) SetError(token uint32, errorMsg string) error {
-	download, err := dm.GetDownloadByToken(token)
+func (dm *DownloadManager) SetError(username, filename string, errorMsg string) error {
+	download, err := dm.GetDownload(username, filename)
 	if err != nil {
 		return err
 	}
 
 	download.SetError(errorMsg)
+
+	// Remove from active downloads immediately (allows re-download)
+	dm.mu.Lock()
+	key := DownloadKey{Username: username, Filename: filename}
+	delete(dm.downloads, key)
+	dm.mu.Unlock()
+
 	dm.logger.Warn("Download error",
-		"token", token,
-		"downloadId", download.ID,
+		"username", username,
+		"filename", filename,
 		"error", errorMsg,
 	)
 	return nil
 }
 
-func (dm *DownloadManager) SetQueuePosition(token uint32, position uint32) error {
-	download, err := dm.GetDownloadByToken(token)
+func (dm *DownloadManager) SetQueuePosition(username, filename string, position uint32) error {
+	download, err := dm.GetDownload(username, filename)
 	if err != nil {
 		return err
 	}
 
 	download.SetQueuePosition(position)
 	dm.logger.Info("Download queue position updated",
-		"token", token,
-		"downloadId", download.ID,
+		"username", username,
+		"filename", filename,
 		"position", position,
 	)
+	return nil
+}
+
+func (dm *DownloadManager) SetToken(username, filename string, token uint32) error {
+	download, err := dm.GetDownload(username, filename)
+	if err != nil {
+		return err
+	}
+
+	download.mu.Lock()
+	download.Token = token
+	download.mu.Unlock()
+
+	dm.logger.Info("Set transfer token",
+		"username", username,
+		"filename", filename,
+		"token", token)
 	return nil
 }
 
@@ -245,16 +279,54 @@ func (dm *DownloadManager) cleanupCompletedDownloads() {
 	for range ticker.C {
 		dm.mu.Lock()
 		now := time.Now()
-		for id, download := range dm.downloads {
+		for key, download := range dm.downloads {
 			if download.CompletedAt != nil && now.Sub(*download.CompletedAt) > dm.ttl {
-				delete(dm.downloads, id)
-				delete(dm.tokenToID, download.Token)
+				delete(dm.downloads, key)
 				dm.logger.Debug("Cleaned up completed download",
-					"downloadId", id,
+					"username", download.Username,
+					"filename", download.Filename,
 					"status", download.Status,
 				)
 			}
 		}
 		dm.mu.Unlock()
 	}
+}
+
+// AddPendingForPeer adds a download to the pending queue for a specific peer
+func (dm *DownloadManager) AddPendingForPeer(username, filename string) {
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
+	key := DownloadKey{Username: username, Filename: filename}
+	dm.pendingByPeer[username] = append(dm.pendingByPeer[username], key)
+	dm.logger.Debug("Added pending download for peer",
+		"username", username,
+		"filename", filename,
+	)
+}
+
+// GetPendingForPeer returns all downloads waiting for a peer connection
+func (dm *DownloadManager) GetPendingForPeer(username string) []*Download {
+	dm.mu.RLock()
+	downloadKeys := dm.pendingByPeer[username]
+	dm.mu.RUnlock()
+
+	downloads := make([]*Download, 0, len(downloadKeys))
+	for _, key := range downloadKeys {
+		dm.mu.RLock()
+		download, exists := dm.downloads[key]
+		dm.mu.RUnlock()
+		if exists {
+			downloads = append(downloads, download)
+		}
+	}
+	return downloads
+}
+
+// ClearPendingForPeer removes all pending downloads for a peer
+func (dm *DownloadManager) ClearPendingForPeer(username string) {
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
+	delete(dm.pendingByPeer, username)
+	dm.logger.Debug("Cleared pending downloads for peer", "username", username)
 }

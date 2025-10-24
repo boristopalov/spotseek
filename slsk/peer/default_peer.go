@@ -81,11 +81,8 @@ func (peer *defaultPeer) handleMessage(messageData []byte, messageLength uint32)
 	if err != nil {
 		return fmt.Errorf("error processing peer msg: %w", err)
 	}
+	_ = decoded // satisfy the compiler for now
 
-	peer.logger.Info("received message from peer",
-		"code", code,
-		"message", decoded,
-		"peer", peer.Username)
 	return nil
 }
 
@@ -297,6 +294,7 @@ func (peer *defaultPeer) handleTransferRequest(reader *messages.MessageReader) (
 	// We send a TransferResponse to the peer to let them know we are ready to receive the file
 	filesize := reader.ReadInt64()
 	result["filesize"] = filesize
+	peer.logger.Info("Received TransferRequest", "peer", peer.Username, "filename", filename, "filesize", filesize, "token", token)
 
 	// Initialize transfer tracking
 	peer.transfersMutex.Lock()
@@ -316,8 +314,6 @@ func (peer *defaultPeer) handleTransferRequest(reader *messages.MessageReader) (
 	// We expect to recieve an "F" connection after this
 	// See slsk/client/listener.go for handling "F" connections
 	peer.TransferResponse(token, true)
-
-	peer.logger.Info("Received TransferRequest", "peer", peer.Username, "filename", filename, "filesize", filesize, "token", token)
 	return map[string]any{
 		"type":   "TransferRequest",
 		"result": result,
@@ -553,14 +549,10 @@ func (peer *defaultPeer) TransferResponse(token uint32, allowed bool) {
 
 // Tell the peer that we want to download a file, i.e. they should queue an upload on their end
 func (peer *defaultPeer) QueueUpload(filename string) {
-	peer.logger.Info("Requesting file from peer",
-		"filename", filename,
-		"peer", peer.Username,
-	)
 	mb := messages.NewMessageBuilder()
 	mb.AddString(filename)
 
-	peer.logger.Info("Sending QueueUpload", "peer", peer.Username, "filename", filename)
+	peer.logger.Info("Sending QueueUpload (requesting file from peer)", "peer", peer.Username, "filename", filename)
 	peer.SendMessage(mb.Build(43))
 }
 
