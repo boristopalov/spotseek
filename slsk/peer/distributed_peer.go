@@ -53,7 +53,7 @@ func (peer *distributedPeer) handleBranchLevel(mr *messages.MessageReader) {
 func (peer *distributedPeer) handleBranchRoot(mr *messages.MessageReader) (map[string]any, error) {
 	branchRoot := mr.ReadString()
 	peer.BranchRoot = branchRoot
-	peer.logger.Info("Received DIstributedBranchRootMessage", "branchRoot", branchRoot, "peer", peer.Username)
+	peer.logger.Info("Received DistributedBranchRootMessage", "branchRoot", branchRoot, "peer", peer.Username)
 	return map[string]any{
 		"type":               "BranchRoot",
 		"branchRootUsername": branchRoot,

@@ -63,6 +63,16 @@ func (c *SlskClient) ConnectToPeer(username string, connType string, token uint3
 		t = token
 	}
 
+	if connInfo, found := c.GetPendingPeer(username); found {
+		if connInfo.connType == connType {
+			c.logger.Warn("Peer already pending-- skipping ConnectToPeer")
+			return
+		}
+
+		// if connection type is different, remove it since we are about to add it again
+		c.RemovePendingPeer(username)
+	}
+
 	c.logger.Info("Sending ConnectToPeer",
 		"token", t,
 		"username", username,
@@ -71,12 +81,13 @@ func (c *SlskClient) ConnectToPeer(username string, connType string, token uint3
 
 	c.AddPendingPeer(username, t, connType, 0)
 
+	// Attempt to get IP of user so that we can send a direct connection request
+	c.GetPeerAddress(username)
+
 	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	msg := mb.ConnectToPeer(t, username, connType)
 	c.Send(msg)
 
-	// Attempt to get IP of user so that we can send a direct connection request
-	c.GetPeerAddress(username)
 }
 
 func (c *SlskClient) CantConnectToPeer(token uint32, username string) {

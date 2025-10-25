@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"runtime/debug"
 	"spotseek/slsk/messages"
 	"time"
@@ -190,16 +191,39 @@ func (c *SlskClient) HandleGetPeerAddress(mr *messages.MessageReader) (map[strin
 
 	c.logger.Info("Received GetPeerAddress", "username", username, "ip", host, "port", port)
 	if host == "0.0.0.0" {
+		c.RemovePendingPeer(username)
 		return decoded, fmt.Errorf("User is offline")
 	}
 
 	go func() {
-		connInfo := c.GetPendingPeer(username)
+		connInfo, found := c.GetPendingPeer(username)
+		if !found {
+			c.logger.Error("Cannot find this pending peer so cannot initiate a connection",
+				"username", username)
+			return
+		}
+		if connInfo.isParent {
+			if c.ParentIp.IP != "" {
+				c.logger.Warn("Already have a parent, no need to connect to this peer",
+					"username", username,
+					"currentParent", c.ParentUsername,
+				)
+			}
+		}
 		err := c.PeerManager.ConnectToPeer(host, port, username, connInfo.connType, connInfo.token, connInfo.privileged)
-		// Always remove pending peer entry whether connection succeeded or failed
-		c.RemovePendingPeer(username)
 
 		if err == nil {
+			// Direct connection succeeded - clean up immediately
+			c.RemovePendingPeer(username)
+
+			// if it's a parent, inform the server
+			if connInfo.isParent {
+				c.HaveNoParent(0)
+				c.BranchRoot(username)
+				c.ParentUsername = username
+				c.ParentIp = IP{IP: host, port: port}
+			}
+
 			peer := c.PeerManager.GetPeer(username)
 			if peer != nil {
 				// send any search results we have stored for this peer
@@ -219,7 +243,30 @@ func (c *SlskClient) HandleGetPeerAddress(mr *messages.MessageReader) (map[strin
 				c.DownloadManager.ClearPendingForPeer(username)
 			}
 		}
+		// try connect to peer again?
+		// If err != nil: keep pending peer, wait for PierceFirewall or CantConnectToPeer
 	}()
+
+	// Add timeout to handle edge cases where neither PierceFirewall nor CantConnectToPeer arrive
+	go func() {
+		time.Sleep(30 * time.Second)
+		_, found := c.GetPendingPeer(username)
+		if found {
+			c.logger.Warn("Pending peer connection timed out", "username", username)
+			c.RemovePendingPeer(username)
+
+			// Clean up associated data structures
+			delete(c.DistribSearchResults, username)
+
+			// Update pending downloads to failed state
+			pendingDownloads := c.DownloadManager.GetPendingForPeer(username)
+			for _, dl := range pendingDownloads {
+				dl.UpdateStatus("failed")
+			}
+			c.DownloadManager.ClearPendingForPeer(username)
+		}
+	}()
+
 	return decoded, nil
 }
 
@@ -552,11 +599,13 @@ func (c *SlskClient) HandleCheckPrivileges(mr *messages.MessageReader) (map[stri
 func (c *SlskClient) HandleSearchRequest(mr *messages.MessageReader) (map[string]any, error) {
 	decoded := make(map[string]any)
 	decoded["type"] = "searchRequest"
-	decoded["distributedCode"] = mr.ReadInt8()
+	code := mr.ReadInt8()
+	decoded["distributedCode"] = code
 	decoded["unknown"] = mr.ReadInt32()
 	decoded["username"] = mr.ReadString()
 	decoded["token"] = mr.ReadInt32()
 	decoded["query"] = mr.ReadString()
+	c.PeerManager.SendDistribMsg(code, mr.Message)
 	return decoded, nil
 }
 
@@ -582,8 +631,12 @@ func (c *SlskClient) HandlePossibleParents(mr *messages.MessageReader) (map[stri
 
 	c.logger.Info("Received PossibleParents", "parents", parents)
 	go func() {
-		// Loop through parents and attempt connection
+		// Loop through parents and attempt both direct and indirect connection
 		for _, parent := range parents {
+			if c.ParentIp.IP != "" {
+				c.logger.Debug("Found a parent already, skipping remaining possible parents")
+				return
+			}
 			username := parent["username"].(string)
 			host := parent["ip"].(string)
 			port := parent["port"].(uint32)
@@ -592,8 +645,14 @@ func (c *SlskClient) HandlePossibleParents(mr *messages.MessageReader) (map[stri
 				// tell the server that we found a parent
 				c.HaveNoParent(0)
 				c.BranchRoot(username)
+				c.ParentUsername = username
+				c.ParentIp = IP{IP: host, port: port}
 				return
 			}
+			token := rand.Int32()
+			c.ConnectToPeer(username, "D", uint32(token))
+			// send an indirect connection if we fail the first time
+
 		}
 	}()
 	return decoded, nil

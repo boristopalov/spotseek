@@ -75,8 +75,8 @@ func (manager *PeerManager) ConnectToPeer(host string, port uint32, username str
 		return fmt.Errorf("cannot connect to user %s with connType %s", username, connType)
 	}
 
-	// For direct connections, we always send PeerInit (code 1)
-	peer.PeerInit(manager.username, peer.ConnType, peer.Token)
+	// For direct connections, we always send PeerInit
+	peer.PeerInit(manager.username, peer.ConnType, 0)
 
 	if peer.ConnType == "F" {
 		go peer.FileListen()

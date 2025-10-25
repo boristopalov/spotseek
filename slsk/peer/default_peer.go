@@ -489,7 +489,7 @@ func (peer *defaultPeer) FileSearchResponse(username string, token uint32, resul
 		mb.AddInt32(uint32(file.Value.SampleRate))
 	}
 
-	mb.AddInt32(1) // TODO: Slotfree
+	mb.AddInt32(10) // TODO: Slotfree
 
 	mb.AddInt32(1024 * 1024) // avgspeed in bytes -- hardcode 1mb/s for now
 

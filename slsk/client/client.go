@@ -24,6 +24,7 @@ type PendingTokenConn struct {
 	connType   string
 	privileged uint8
 	token      uint32
+	isParent   bool
 }
 
 type User struct {
@@ -77,6 +78,8 @@ type SlskClient struct {
 	SearchManager    *SearchManager
 	DownloadManager  *downloads.DownloadManager
 
+	ParentUsername       string // username of our parent, if we have one
+	ParentIp             IP
 	DistribSearchCh      chan peer.DistribSearchMsg       // used for incoming distributed msgs
 	DistribSearchResults map[string][]distribSearchResult // username -> token and results
 
@@ -185,10 +188,14 @@ func (c *SlskClient) AddPendingPeer(username string, token uint32, connType stri
 	c.PendingTokens[token] = connInfo
 }
 
-func (c *SlskClient) GetPendingPeer(username string) PendingTokenConn {
+func (c *SlskClient) GetPendingPeer(username string) (PendingTokenConn, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.PendingUsers[username]
+	pendingToken, found := c.PendingUsers[username]
+	if !found {
+		return PendingTokenConn{}, false // shitty workaround but prolly fine for now
+	}
+	return pendingToken, true
 }
 
 func (c *SlskClient) RemovePendingPeer(username string) {
@@ -218,9 +225,7 @@ func (c *SlskClient) listenForDistribSearches() {
 					distribSearchResult{token: msg.Token, files: res})
 
 				c.logger.Info("added distrib search result", "username", msg.Username, "token", msg.Token, "results", res)
-				// try connecting to the username
 				c.ConnectToPeer(msg.Username, "P", msg.Token)
-				// c.GetPeerAddress(msg.Username)
 			}
 		}
 	}

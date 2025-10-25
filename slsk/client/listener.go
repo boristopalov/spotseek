@@ -26,30 +26,49 @@ func (c *SlskClient) ListenForIncomingPeers() {
 	}
 }
 
+func (c *SlskClient) closePeerConnection(peerConn net.Conn) {
+	host, port, err := SplitHostPort(peerConn)
+	if err != nil {
+		c.logger.Error("Failed to split host port")
+	} else {
+		ip := IP{IP: host, port: port}
+		if c.ParentIp == ip {
+			c.ParentIp = IP{}
+			c.ParentUsername = ""
+			c.HaveNoParent(1)
+		}
+	}
+	peerConn.Close()
+}
+
 // New method to handle each incoming peer connection
 func (c *SlskClient) handleIncomingPeerConnection(peerConn net.Conn) {
 	defer func() {
 		if r := recover(); r != nil {
 			c.logger.Error("Recovered from panic in peer connection handler", "error", r)
-			peerConn.Close()
+			c.closePeerConnection(peerConn)
 		}
 	}()
 
 	message, err := readPeerInitMessage(peerConn)
 	if err != nil {
 		c.logger.Error("Error reading peer message", "err", err)
-		peerConn.Close()
+		c.closePeerConnection(peerConn)
 		return
 	}
 
 	peerMsgReader := messages.NewMessageReader(message)
 	code := peerMsgReader.ReadInt8()
 
+	var handleErr error
 	switch code {
 	case 0:
-		c.handlePierceFirewall(peerConn, peerMsgReader)
+		_, handleErr = c.handlePierceFirewall(peerConn, peerMsgReader)
 	case 1:
-		c.handlePeerInit(peerConn, peerMsgReader)
+		_, handleErr = c.handlePeerInit(peerConn, peerMsgReader)
+	}
+	if handleErr != nil {
+		c.closePeerConnection(peerConn)
 	}
 }
 
@@ -112,6 +131,22 @@ func (c *SlskClient) handlePierceFirewall(conn net.Conn, mr *messages.MessageRea
 		delete(c.PendingTransferReqs, key) // TODO: maybe should wait for an upload complete event
 
 	} else {
+		// Send any stored search results for this peer
+		storedSearchResultsForPeer := c.DistribSearchResults[username]
+		for _, res := range storedSearchResultsForPeer {
+			peer.FileSearchResponse(username, res.token, res.files)
+		}
+		delete(c.DistribSearchResults, username)
+
+		// Send QueueUpload for any pending downloads
+		pendingDownloads := c.DownloadManager.GetPendingForPeer(username)
+		for _, dl := range pendingDownloads {
+			peer.QueueUpload(dl.Filename)
+			// Update download status from "connecting" to "queued"
+			dl.UpdateStatus("queued")
+		}
+		c.DownloadManager.ClearPendingForPeer(username)
+
 		go peer.Listen()
 	}
 	return map[string]any{
