@@ -1,27 +1,28 @@
 # spotseek
 
-Golang client for the Soulseek protocol
+Golang client for the Soulseek protocol. Supports most of the protocol specs.
 
 ## Features
 
 - Support for searching and downloading files
 - Participation in the distributed search network
 - Terminal UI for searching and downloading files
+- A basic REST API for searching, downloading, etc.
 
 ## Usage
 
 1. Make sure you have `make` installed. You can do so via `brew install make` on macOS
 2. Create a `.env` file with your slsk username, password, as well as the path for sharing files (only single directory is supported currently). See `.env.example` for an example
-3. Run `make run-tui` to start the client and launch the TUI
+3. Run `make serve` to start the client and API server
 
 ## Todo
 
-- [ ] Add tests !!
 - [ ] Support for being a parent in the distributed network
 - [ ] User-configurable settings for share paths and multiple share paths
 - [ ] Retrying incomplete downloads
 - [ ] Persistence mechanisms
-- [ ] API support
+- [x] API support
+- [ ] Tests :)
 
 ## Protocol Documentation
 
