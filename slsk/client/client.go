@@ -10,6 +10,7 @@ import (
 	"spotseek/slsk/fileshare"
 	nc "spotseek/slsk/net"
 	"spotseek/slsk/peer"
+	"spotseek/slsk/uploads"
 	"sync"
 	"time"
 )
@@ -17,14 +18,6 @@ import (
 type IP struct {
 	IP   string
 	port uint32
-}
-
-type PendingTokenConn struct {
-	username   string
-	connType   string
-	privileged uint8
-	token      uint32
-	isParent   bool
 }
 
 type User struct {
@@ -58,7 +51,7 @@ type Room struct {
 	messages []string
 }
 
-type distribSearchResult struct {
+type SearchResult struct {
 	token uint32
 	files []fileshare.SharedFile
 }
@@ -70,21 +63,21 @@ type SlskClient struct {
 	ServerConnection *nc.Connection
 	Listener         net.Listener
 	mu               sync.RWMutex
-	User             string                      // the user that is logged in
-	PendingUsers     map[string]PendingTokenConn // username --> connection info
-	PendingTokens    map[uint32]PendingTokenConn // token --> connection info
-	JoinedRooms      map[string]*Room            // room name --> users in room
+	User             string           // the user that is logged in
+	JoinedRooms      map[string]*Room // room name --> users in room
 	PeerManager      *peer.PeerManager
 	SearchManager    *SearchManager
 	DownloadManager  *downloads.DownloadManager
+	UploadManager    *uploads.UploadManager
 
-	ParentUsername       string // username of our parent, if we have one
-	ParentIp             IP
-	DistribSearchCh      chan peer.DistribSearchMsg       // used for incoming distributed msgs
-	DistribSearchResults map[string][]distribSearchResult // username -> token and results
+	ParentUsername  string // username of our parent, if we have one
+	ParentIp        IP
+	DistribSearchCh chan peer.DistribSearchMsg // used for incoming distributed msgs
+	SearchResults   map[string][]SearchResult  // username -> token and results
 
-	TransferReqCh       chan peer.FileTransfer       // used for when peers request files from us
-	PendingTransferReqs map[string]peer.FileTransfer // username_token -> file
+	TransferReqCh chan peer.UploadStartMsg // used for when peers request files from us (we upload to them). Tokens are sent over this channel
+
+	PeerLifecycleEventCh chan peer.PeerLifecycleEvent // used for peer lifecycle events (connect/disconnect)
 
 	logger *slog.Logger
 	shares *fileshare.Shared
@@ -96,28 +89,30 @@ func NewSlskClient(username string, host string, port int, logger *slog.Logger) 
 	}
 	shares := fileshare.NewShared(config.GetSettings(), logger)
 	distributedsearchCh := make(chan peer.DistribSearchMsg)
-	transferReqCh := make(chan peer.FileTransfer)
+	transferReqCh := make(chan peer.UploadStartMsg)
+	lifecycleEventCh := make(chan peer.PeerLifecycleEvent)
 	searchManager := NewSearchManager(10*time.Minute, logger)
 	downloadManager := downloads.NewDownloadManager(10*time.Minute, logger)
+	uploadManager := uploads.NewUploadManager(10*time.Minute, logger)
 
 	client := &SlskClient{
 		Username:             username,
 		Host:                 host,
 		Port:                 port,
-		PendingUsers:         make(map[string]PendingTokenConn),
-		PendingTokens:        make(map[uint32]PendingTokenConn),
 		JoinedRooms:          make(map[string]*Room),
 		DistribSearchCh:      distributedsearchCh,
-		DistribSearchResults: make(map[string][]distribSearchResult),
+		SearchResults:        make(map[string][]SearchResult),
 		TransferReqCh:        transferReqCh,
-		PendingTransferReqs:  make(map[string]peer.FileTransfer),
+		PeerLifecycleEventCh: lifecycleEventCh,
 		SearchManager:        searchManager,
 		DownloadManager:      downloadManager,
+		UploadManager:        uploadManager,
 		logger:               logger,
 		shares:               shares,
 	}
 
-	client.PeerManager = peer.NewPeerManager(username, distributedsearchCh, transferReqCh, shares, searchManager, downloadManager, logger)
+	client.PeerManager = peer.NewPeerManager(username, distributedsearchCh, transferReqCh, lifecycleEventCh, shares, searchManager, downloadManager, uploadManager, logger)
+
 	return client
 }
 
@@ -138,24 +133,46 @@ func (c *SlskClient) Connect(username, pw string) error {
 	if err != nil {
 		return errors.New("unable to listen on port 2234; " + err.Error())
 	}
+	c.logger.Info("Listening on port 2234")
 	c.ServerConnection = &nc.Connection{Conn: conn}
 	c.Listener = listener
 
 	c.User = username
 
-	go c.ListenForServerMessages()
-	go c.ListenForIncomingPeers()
+	go func() {
+		for {
+			c.ListenForServerMessages()
+			c.Login(username, pw)
+			c.SetWaitPort(2234)
+			c.logger.Error("Server listener stopped, restarting...")
+		}
+	}()
 
-	c.Login(username, pw) // see c.HandleLogin() for response handling
+	c.Login(username, pw)
 	c.SetWaitPort(2234)
-	c.logger.Info("Listening on port 2234")
-
+	go c.ListenForIncomingPeers()
 	go c.listenForDistribSearches()
-	go c.listenForTransferRequests()
+	go c.listenForUploadRequests()
+	go c.listenForPeerLifecycleEvents()
 
 	// c.JoinRoom("nicotine")
 	// c.JoinRoom("The Lobby")
 	return nil
+}
+
+// listenForPeerLifecycleEvents listens for peer lifecycle events (for parent handling, etc.)
+func (c *SlskClient) listenForPeerLifecycleEvents() {
+	for event := range c.PeerLifecycleEventCh {
+		if event.Event == peer.EventDisconnected {
+			// Check if this was our parent peer
+			if c.ParentIp.IP == event.Host {
+				c.logger.Info("Parent disconnected", "username", event.Username)
+				c.ParentIp = IP{}
+				c.ParentUsername = ""
+				c.HaveNoParent(1)
+			}
+		}
+	}
 }
 
 func (c *SlskClient) Close() error {
@@ -172,72 +189,47 @@ func (c *SlskClient) Close() error {
 	return nil
 }
 
-func (c *SlskClient) AddPendingPeer(username string, token uint32, connType string, privileged uint8) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	_, found := c.PendingUsers[username]
-	if found {
-		c.logger.Warn("Peer connection already pending",
-			"token", token,
-			"username", username,
-		)
-		return
-	}
-	connInfo := PendingTokenConn{username: username, connType: connType, token: token, privileged: privileged}
-	c.PendingUsers[username] = connInfo
-	c.PendingTokens[token] = connInfo
-}
-
-func (c *SlskClient) GetPendingPeer(username string) (PendingTokenConn, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	pendingToken, found := c.PendingUsers[username]
-	if !found {
-		return PendingTokenConn{}, false // shitty workaround but prolly fine for now
-	}
-	return pendingToken, true
-}
-
-func (c *SlskClient) RemovePendingPeer(username string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	connInfo := c.PendingUsers[username]
-	delete(c.PendingUsers, username)
-	delete(c.PendingTokens, connInfo.token)
-}
-
 // messages get sent to DistribSearchCh when distributed peers send us queries
 func (c *SlskClient) listenForDistribSearches() {
 	for msg := range c.DistribSearchCh {
 		if len(msg.Query) < 4 {
 			continue
 		}
+		c.PeerManager.SendDistribSearch(msg.Username, msg.Token, msg.Query)
 		res := c.shares.Search(msg.Query)
 		if len(res) > 0 {
 			c.logger.Info("distributed search match", "query", msg.Query, "username", msg.Username)
-			if peer := c.PeerManager.GetPeer(msg.Username); peer != nil {
-				peer.FileSearchResponse(msg.Username, msg.Token, res)
-			} else {
-				// store the search result
-				// when we get a response for peer address, we will try sending search result
-				c.DistribSearchResults[msg.Username] = append(
-					c.DistribSearchResults[msg.Username],
-					distribSearchResult{token: msg.Token, files: res})
-
-				c.logger.Info("added distrib search result", "username", msg.Username, "token", msg.Token, "results", res)
-				c.ConnectToPeer(msg.Username, "P", msg.Token)
-			}
+			c.SendSearchResults(msg.Username, msg.Token, res)
 		}
 	}
 }
 
+func (c *SlskClient) SendSearchResults(username string, token uint32, results []fileshare.SharedFile) {
+	if peer := c.PeerManager.GetDefaultPeer(username); peer != nil {
+		peer.FileSearchResponse(username, token, results)
+	} else {
+		// store the search result
+		// when we get a response for peer address, we will try sending search result
+		// name of this method is not accurate...
+		// if we don't have a peer we don't actually send the results until a connection is established
+		c.mu.Lock()
+		c.SearchResults[username] = append(
+			c.SearchResults[username],
+			SearchResult{token: token, files: results})
+
+		c.mu.Unlock()
+		c.logger.Info("added search results", "username", username, "token", token, "numResults", len(results))
+		c.RequestPeerConnection(username, "P", token, false)
+	}
+}
+
 // messages get sent to TransferRequestCh when peers request a file from us
-func (c *SlskClient) listenForTransferRequests() {
+// Upload info is tracked in UploadManager
+func (c *SlskClient) listenForUploadRequests() {
 	for msg := range c.TransferReqCh {
-		key := fmt.Sprintf("%s_%d", msg.PeerUsername, msg.Token)
-		c.PendingTransferReqs[key] = msg
+
 		c.logger.Info("attempting to start file transfer", "transfer", msg)
-		c.AddPendingPeer(msg.PeerUsername, msg.Token, "F", 0)
-		c.ConnectToPeer(msg.PeerUsername, "F", msg.Token)
+		c.PeerManager.AddPendingConnection(msg.Username, msg.Token, "F", 0, false)
+		c.RequestPeerConnection(msg.Username, "F", msg.Token, false)
 	}
 }

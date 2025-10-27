@@ -62,7 +62,7 @@ func (h *APIHandler) ConnectToPeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.client.ConnectToPeer(username, connType, 0)
+	h.client.RequestPeerConnection(username, connType, 0, false)
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Connection to peer initiated"})
 }
@@ -86,29 +86,29 @@ func (h *APIHandler) Download(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create download record (no token yet - peer will provide it)
-	download := h.client.DownloadManager.CreateDownload(req.SearchID, req.Username, req.Filename, req.Size)
+
+	ftPeer := h.client.PeerManager.GetDistributedPeer(req.Username)
+
+	// there's already an upload/download occurring
+	if ftPeer != nil {
+		http.Error(w, "File transfer with this peer currently in progress", http.StatusConflict)
+		return
+	}
 
 	// Check if peer connection exists
-	peer := h.client.PeerManager.GetPeer(req.Username)
+	peer := h.client.PeerManager.GetDefaultPeer(req.Username)
 	if peer == nil {
 		// Peer not connected yet - add to pending downloads queue in DownloadManager
-		download.UpdateStatus("connecting")
 		h.client.DownloadManager.AddPendingForPeer(req.Username, req.Filename)
 
 		// Auto-connect to peer
-		h.client.ConnectToPeer(req.Username, "P", 0)
+		h.client.RequestPeerConnection(req.Username, "P", 0, false)
 	} else {
 		// Peer already connected - send QueueUpload immediately
-		download.UpdateStatus("queued")
 		peer.QueueUpload(req.Filename)
 	}
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":   download.Status,
-		"username": download.Username,
-		"filename": download.Filename,
-	})
 }
 
 func (h *APIHandler) GetDownload(w http.ResponseWriter, r *http.Request) {
@@ -157,6 +157,57 @@ func (h *APIHandler) CancelDownload(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Download cancelled"})
 }
+
+// Upload API endpoints
+
+func (h *APIHandler) ListUploads(w http.ResponseWriter, r *http.Request) {
+	uploads := h.client.UploadManager.ListUploads()
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"uploads": uploads,
+	})
+}
+
+func (h *APIHandler) GetUpload(w http.ResponseWriter, r *http.Request) {
+	username := chi.URLParam(r, "username")
+	filename := chi.URLParam(r, "filename")
+
+	if username == "" || filename == "" {
+		http.Error(w, "Missing username or filename", http.StatusBadRequest)
+		return
+	}
+
+	upload, err := h.client.UploadManager.GetUpload(username, filename)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(upload)
+}
+
+func (h *APIHandler) CancelUpload(w http.ResponseWriter, r *http.Request) {
+	username := chi.URLParam(r, "username")
+	filename := chi.URLParam(r, "filename")
+
+	if username == "" || filename == "" {
+		http.Error(w, "Missing username or filename", http.StatusBadRequest)
+		return
+	}
+
+	err := h.client.UploadManager.CancelUpload(username, filename)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Upload cancelled"})
+}
+
+// Search API endpoints
 
 func (h *APIHandler) Search(w http.ResponseWriter, r *http.Request) {
 	var req struct {

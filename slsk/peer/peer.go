@@ -1,8 +1,8 @@
 package peer
 
 import (
-	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,67 +12,154 @@ import (
 	"time"
 )
 
-type Peer struct {
-	Username         string                   `json:"username"`
-	PeerConnection   *nc.Connection           `json:"-"` // Skip in JSON
-	ConnType         string                   `json:"connType"`
-	Token            uint32                   `json:"token"`
-	Host             string                   `json:"host"`
-	Port             uint32                   `json:"port"`
-	Privileged       uint8                    `json:"privileged"`
-	mgrCh            chan<- PeerEvent         `json:"-"` // Skip in JSON
-	distribSearchCh  chan<- DistribSearchMsg  `json:"-"`
-	fileTransferCh   chan<- struct{}          `json:"-"`
-	pendingTransfers map[uint32]*FileTransfer `json:"-"` // transfers that we request
-	transfersMutex   sync.RWMutex             `json:"-"`
-	logger           *slog.Logger             `json:"-"`
-	mu               sync.RWMutex             `json:"-"`
-	BranchLevel      uint32                   `json:"branchLevel"`
-	BranchRoot       string                   `json:"branchRoot"`
+// PeerConnection is the base connection type with common functionality
+type PeerConnection struct {
+	Username   string         `json:"username"`
+	Conn       *nc.Connection `json:"-"`
+	Host       string         `json:"host"`
+	Port       uint32         `json:"port"`
+	Privileged uint8          `json:"privileged"`
+	logger     *slog.Logger   `json:"-"`
+	mu         sync.RWMutex   `json:"-"`
 }
 
-func newPeer(username string, connType string, token uint32, host string, port uint32, privileged uint8, peerCh chan<- PeerEvent, distribSearchCh chan<- DistribSearchMsg, logger *slog.Logger) (*Peer, error) {
-	logger.Info("Connecting to peer via TCP", "username", username, "host", host, "port", port)
+type PeerType int
+
+const (
+	PeerTypeDefault PeerType = iota
+	PeerTypeDistributed
+	PeerTypeFileTransfer
+)
+
+func (p PeerType) String() string {
+	switch p {
+	case PeerTypeDefault:
+		return "P"
+	case PeerTypeDistributed:
+		return "D"
+	case PeerTypeFileTransfer:
+		return "F"
+	default:
+		return fmt.Sprintf("Unkwnown Peer Type (%d)", p)
+	}
+}
+
+// MarshalJSON implements the json.Marshaler interface
+func (p PeerType) MarshalJSON() ([]byte, error) {
+	var s string
+	switch p {
+	case PeerTypeDefault:
+		s = "default (P)"
+	case PeerTypeDistributed:
+		s = "distributed (D)"
+	case PeerTypeFileTransfer:
+		s = "file_transfer (F)"
+	default:
+		return nil, fmt.Errorf("unknown peer type: %d", p)
+	}
+	return json.Marshal(s)
+}
+
+// UnmarshalJSON implements the json.Unmarshaler interface
+func (p *PeerType) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+
+	switch s {
+	case "default", "P":
+		*p = PeerTypeDefault
+	case "distributed", "D":
+		*p = PeerTypeDistributed
+	case "file_transfer", "F":
+		*p = PeerTypeFileTransfer
+	default:
+		return fmt.Errorf("unknown peer type: %s", s)
+	}
+	return nil
+}
+
+// DefaultPeer handles standard peer-to-peer operations (searches, transfers)
+type DefaultPeer struct {
+	*PeerConnection
+	mgrCh            chan<- PeerEvent
+	pendingTransfers map[uint32]*FileTransfer
+	transfersMutex   sync.RWMutex
+}
+
+// DistributedPeer handles distributed network operations
+type DistributedPeer struct {
+	*PeerConnection
+	mgrCh           chan<- PeerEvent
+	distribSearchCh chan<- DistribSearchMsg
+	BranchLevel     uint32 `json:"branchLevel"`
+	BranchRoot      string `json:"branchRoot"`
+}
+
+// FileTransferPeer handles file upload/download streaming
+type FileTransferPeer struct {
+	*PeerConnection
+	mgrCh chan<- PeerEvent
+	Token uint32
+}
+
+// newPeerConnection creates a new peer connection with TCP dial
+func newPeerConnection(username string, host string, port uint32, privileged uint8, logger *slog.Logger) (*PeerConnection, error) {
+	logger.Info("Connecting to peer", "username", username, "host", host, "port", port)
 	c, err := net.DialTimeout("tcp", net.JoinHostPort(host, fmt.Sprintf("%d", port)), 10*time.Second)
 	if err != nil {
 		logger.Error("unable to establish connection to peer", "username", username, "error", err)
 		return nil, fmt.Errorf("unable to establish connection to peer %s: %v", username, err)
-	} else {
-		return &Peer{
-			Username:        username,
-			PeerConnection:  &nc.Connection{Conn: c},
-			ConnType:        connType,
-			Token:           token,
-			Host:            host,
-			Port:            port,
-			Privileged:      privileged,
-			mgrCh:           peerCh,
-			distribSearchCh: distribSearchCh,
-			fileTransferCh:  make(chan struct{}),
-			logger:          logger,
-		}, nil
+	}
+	logger.Info("connected to peer", "username", username, "host", host, "port", port)
+	return &PeerConnection{
+		Username:   username,
+		Conn:       &nc.Connection{Conn: c},
+		Host:       host,
+		Port:       port,
+		Privileged: privileged,
+		logger:     logger,
+	}, nil
+}
+
+// newPeerConnectionWithConn creates a peer connection from an existing net.Conn
+func newPeerConnectionWithConn(username string, host string, port uint32, privileged uint8, logger *slog.Logger, existingConn net.Conn) *PeerConnection {
+	return &PeerConnection{
+		Username:   username,
+		Conn:       &nc.Connection{Conn: existingConn},
+		Host:       host,
+		Port:       port,
+		Privileged: privileged,
+		logger:     logger,
 	}
 }
 
-// Add a new constructor function that accepts an existing connection
-func newPeerWithConnection(username string, connType string, token uint32, host string, port uint32, privileged uint8,
-	peerCh chan<- PeerEvent, distribSearchCh chan<- DistribSearchMsg,
-	logger *slog.Logger, existingConn net.Conn) (*Peer, error) {
-
-	return &Peer{
-		Username:         username,
-		PeerConnection:   &nc.Connection{Conn: existingConn},
-		ConnType:         connType,
-		Token:            token,
-		Host:             host,
-		Port:             port,
-		Privileged:       privileged,
+// newDefaultPeer creates a new DefaultPeer
+func newDefaultPeer(peerConn *PeerConnection, peerCh chan<- PeerEvent) *DefaultPeer {
+	return &DefaultPeer{
+		PeerConnection:   peerConn,
 		mgrCh:            peerCh,
-		distribSearchCh:  distribSearchCh,
-		fileTransferCh:   make(chan struct{}),
 		pendingTransfers: make(map[uint32]*FileTransfer),
-		logger:           logger,
-	}, nil
+	}
+}
+
+// newDistributedPeer creates a new DistributedPeer
+func newDistributedPeer(peerConn *PeerConnection, peerCh chan<- PeerEvent, distribSearchCh chan<- DistribSearchMsg) *DistributedPeer {
+	return &DistributedPeer{
+		PeerConnection:  peerConn,
+		mgrCh:           peerCh,
+		distribSearchCh: distribSearchCh,
+	}
+}
+
+// newFileTransferPeer creates a new FileTransferPeer
+func newFileTransferPeer(peerConn *PeerConnection, peerCh chan<- PeerEvent, token uint32) *FileTransferPeer {
+	return &FileTransferPeer{
+		PeerConnection: peerConn,
+		mgrCh:          peerCh,
+		Token:          token,
+	}
 }
 
 // TODO: maybe separate this into incoming and outgoing transfer
@@ -81,37 +168,54 @@ type FileTransfer struct {
 	Size         uint64
 	PeerUsername string
 	Token        uint32
-	Buffer       *bytes.Buffer
 	Offset       uint64
 }
 
-func (p *Peer) SendMessage(msg []byte) error {
-	if p == nil {
+// Common methods on PeerConnection
+func (pc *PeerConnection) SendMessage(msg []byte) error {
+	if pc == nil {
 		return fmt.Errorf("tried to send message to peer but peer is nil")
 	}
-	if p.PeerConnection == nil {
+	if pc.Conn == nil {
 		return fmt.Errorf("cannot send message to peer. no active connection")
 	}
-	return p.PeerConnection.SendMessage(msg)
+	return pc.Conn.SendMessage(msg)
 }
 
-func (peer *Peer) Close() {
-	peer.mu.Lock()
-	defer peer.mu.Unlock()
-	peer.PeerConnection.Close()
+func (pc *PeerConnection) Close() {
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
+	pc.Conn.Close()
 }
 
-func (peer *Peer) Listen() {
+func (pc *PeerConnection) Read(buf []byte) (int, error) {
+	return pc.Conn.Read(buf)
+}
+
+func (pc *PeerConnection) GetUsername() string {
+	return pc.Username
+}
+
+func (pc *PeerConnection) GetHost() string {
+	return pc.Host
+}
+
+func (pc *PeerConnection) GetPort() uint32 {
+	return pc.Port
+}
+
+// DefaultPeer methods
+func (peer *DefaultPeer) Listen() {
 	readBuffer := make([]byte, 4096)
 	var currentMessage []byte
 	var messageLength uint32
 
 	defer func() {
-		peer.mgrCh <- PeerEvent{Type: PeerDisconnected, Peer: peer}
+		peer.mgrCh <- PeerEvent{Type: PeerDisconnected, Username: peer.Username, Host: peer.Host, Port: peer.Port}
 	}()
 
 	for {
-		n, err := peer.PeerConnection.Read(readBuffer)
+		n, err := peer.Conn.Read(readBuffer)
 		if err != nil {
 			if err == io.EOF {
 				peer.logger.Warn("Peer closed the connection",
@@ -136,7 +240,7 @@ func (peer *Peer) Listen() {
 	}
 }
 
-func (peer *Peer) processMessage(data []byte, messageLength uint32) ([]byte, uint32) {
+func (peer *DefaultPeer) processMessage(data []byte, messageLength uint32) ([]byte, uint32) {
 	if len(data) == 0 {
 		return data, messageLength
 	}
@@ -161,24 +265,14 @@ func (peer *Peer) processMessage(data []byte, messageLength uint32) ([]byte, uin
 				peer.logger.Error("recovered from panic",
 					"error", r,
 				)
-				// Optionally log the stack trace
-				// debug.PrintStack()
 			}
 		}()
 
-		if peer.ConnType == "P" {
-			if err := peer.handleMessage(data[:messageLength], messageLength); err != nil {
-				peer.logger.Error("Error handling peer message",
-					"err", err,
-					"length", messageLength,
-					"peer", peer.Username)
-			}
-
-		} else if peer.ConnType == "D" {
-			peer.handleDistribMessage(data[:messageLength])
-		} else {
-			peer.logger.Error("Unsupported connection type when handling message", "connType", peer.ConnType, "peer", peer)
-			return nil, 0
+		if err := peer.handleMessage(data[:messageLength], messageLength); err != nil {
+			peer.logger.Error("Error handling peer message",
+				"err", err,
+				"length", messageLength,
+				"peer", peer.Username)
 		}
 
 		data = data[messageLength:]

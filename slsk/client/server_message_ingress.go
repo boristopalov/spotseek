@@ -191,79 +191,79 @@ func (c *SlskClient) HandleGetPeerAddress(mr *messages.MessageReader) (map[strin
 
 	c.logger.Info("Received GetPeerAddress", "username", username, "ip", host, "port", port)
 	if host == "0.0.0.0" {
-		c.RemovePendingPeer(username)
+		c.PeerManager.RemovePendingConnection(username)
 		return decoded, fmt.Errorf("User is offline")
 	}
 
 	go func() {
-		connInfo, found := c.GetPendingPeer(username)
+		connInfo, found := c.PeerManager.GetPendingConnection(username)
 		if !found {
 			c.logger.Error("Cannot find this pending peer so cannot initiate a connection",
 				"username", username)
 			return
 		}
-		if connInfo.isParent {
+		if connInfo.IsParent {
+			c.mu.Lock()
 			if c.ParentIp.IP != "" {
 				c.logger.Warn("Already have a parent, no need to connect to this peer",
 					"username", username,
 					"currentParent", c.ParentUsername,
 				)
+				c.mu.Unlock()
+				return
 			}
+			c.mu.Unlock()
 		}
-		err := c.PeerManager.ConnectToPeer(host, port, username, connInfo.connType, connInfo.token, connInfo.privileged)
+		err := c.PeerManager.ConnectToPeer(host, port, username, connInfo.ConnType, connInfo.Token, connInfo.Privileged)
 
 		if err == nil {
 			// Direct connection succeeded - clean up immediately
-			c.RemovePendingPeer(username)
+			c.PeerManager.RemovePendingConnection(username)
 
 			// if it's a parent, inform the server
-			if connInfo.isParent {
+			if connInfo.IsParent {
 				c.HaveNoParent(0)
 				c.BranchRoot(username)
 				c.ParentUsername = username
 				c.ParentIp = IP{IP: host, port: port}
 			}
 
-			peer := c.PeerManager.GetPeer(username)
+			// Get the default peer (for file sharing operations)
+			peer := c.PeerManager.GetDefaultPeer(username)
 			if peer != nil {
 				// send any search results we have stored for this peer
-				storedSearchResultsForPeer := c.DistribSearchResults[username]
+				storedSearchResultsForPeer := c.SearchResults[username]
 				for _, res := range storedSearchResultsForPeer {
+					c.logger.Info("found stored search results for peer that we can send now", "username", username, "token", res.token, "files", res.files)
 					peer.FileSearchResponse(username, res.token, res.files)
 				}
-				delete(c.DistribSearchResults, username)
+				delete(c.SearchResults, username)
 
 				// send QueueUpload for any pending downloads
 				pendingDownloads := c.DownloadManager.GetPendingForPeer(username)
 				for _, dl := range pendingDownloads {
+					c.logger.Info("found pending download from peer", "filename", dl.Filename)
+					// We expect to get a TransferRequest back from the peer
+					// see slsk/peer/default_peer/handleTransferRequest
 					peer.QueueUpload(dl.Filename)
-					// Update download status from "connecting" to "queued"
-					dl.UpdateStatus("queued")
 				}
-				c.DownloadManager.ClearPendingForPeer(username)
 			}
 		}
 		// try connect to peer again?
 		// If err != nil: keep pending peer, wait for PierceFirewall or CantConnectToPeer
 	}()
 
-	// Add timeout to handle edge cases where neither PierceFirewall nor CantConnectToPeer arrive
+	// Add timeout to handle cases where neither PierceFirewall nor CantConnectToPeer arrive
 	go func() {
 		time.Sleep(30 * time.Second)
-		_, found := c.GetPendingPeer(username)
+		_, found := c.PeerManager.GetPendingConnection(username)
 		if found {
 			c.logger.Warn("Pending peer connection timed out", "username", username)
-			c.RemovePendingPeer(username)
-
-			// Clean up associated data structures
-			delete(c.DistribSearchResults, username)
-
-			// Update pending downloads to failed state
-			pendingDownloads := c.DownloadManager.GetPendingForPeer(username)
-			for _, dl := range pendingDownloads {
-				dl.UpdateStatus("failed")
-			}
-			c.DownloadManager.ClearPendingForPeer(username)
+			c.PeerManager.RemovePendingConnection(username)
+			c.mu.Lock()
+			delete(c.SearchResults, username)
+			c.mu.Unlock()
+			c.DownloadManager.ClearAllPendingForPeer(username)
 		}
 	}()
 
@@ -487,11 +487,18 @@ func (c *SlskClient) HandleConnectToPeer(mr *messages.MessageReader) (map[string
 	decoded["token"] = token
 	decoded["privileged"] = privileged
 
-	c.logger.Info("Received ConnectToPeer (indirect connection request)", "username", username, "ip", ip, "port", port, "token", token, "privileged", privileged)
+	c.logger.Info("Received ConnectToPeer (indirect connection request)", "username", username, "ip", ip, "port", port, "token", token, "type", connType, "privileged", privileged)
 
 	// Check if we already have a connection from this peer (they may have sent PeerInit first)
-	existingPeer := c.PeerManager.GetPeer(username)
-	if existingPeer != nil && existingPeer.ConnType == connType {
+	var existingPeerFound bool
+	if connType == "P" {
+		existingPeerFound = c.PeerManager.GetDefaultPeer(username) != nil
+	} else if connType == "D" {
+		existingPeerFound = c.PeerManager.GetDistributedPeer(username) != nil
+	} else if connType == "F" {
+		existingPeerFound = c.PeerManager.GetFileTransferPeer(username) != nil
+	}
+	if existingPeerFound {
 		c.logger.Info("Peer connection already exists", "username", username, "connType", connType)
 		return decoded, nil
 	}
@@ -531,9 +538,11 @@ func (c *SlskClient) HandleFileSearch(mr *messages.MessageReader) (map[string]an
 	decoded["token"] = token
 	decoded["query"] = query
 
-	// TODO
-	// c.shares.Search(query)
 	c.logger.Info("Received FileSearch", "username", username, "token", token, "query", query)
+	results := c.shares.Search(query)
+	if len(results) > 0 {
+		c.SendSearchResults(username, token, results)
+	}
 	return decoded, nil
 }
 
@@ -633,10 +642,12 @@ func (c *SlskClient) HandlePossibleParents(mr *messages.MessageReader) (map[stri
 	go func() {
 		// Loop through parents and attempt both direct and indirect connection
 		for _, parent := range parents {
+			c.mu.Lock()
 			if c.ParentIp.IP != "" {
 				c.logger.Debug("Found a parent already, skipping remaining possible parents")
 				return
 			}
+			c.mu.Unlock()
 			username := parent["username"].(string)
 			host := parent["ip"].(string)
 			port := parent["port"].(uint32)
@@ -645,14 +656,16 @@ func (c *SlskClient) HandlePossibleParents(mr *messages.MessageReader) (map[stri
 				// tell the server that we found a parent
 				c.HaveNoParent(0)
 				c.BranchRoot(username)
+				c.mu.Lock()
 				c.ParentUsername = username
 				c.ParentIp = IP{IP: host, port: port}
+				c.mu.Unlock()
 				return
 			}
+			// fallback to indirect connection request
+			c.logger.Info("Falling back to indirect connection request for parent", "username", username)
 			token := rand.Int32()
-			c.ConnectToPeer(username, "D", uint32(token))
-			// send an indirect connection if we fail the first time
-
+			c.RequestPeerConnection(username, "D", uint32(token), true)
 		}
 	}()
 	return decoded, nil
@@ -810,7 +823,7 @@ func (c *SlskClient) HandleCantConnectToPeer(mr *messages.MessageReader) (map[st
 	decoded["token"] = token
 	decoded["username"] = username
 	c.logger.Info("Received CantConnectToPeer", "token", token, "username", username)
-	c.RemovePendingPeer(username)
+	c.PeerManager.RemovePendingConnection(username)
 	return decoded, nil
 }
 

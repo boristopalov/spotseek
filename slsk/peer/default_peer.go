@@ -10,36 +10,7 @@ import (
 	"spotseek/slsk/messages"
 )
 
-type DefaultPeer interface {
-	handleMessage(messageData []byte, messageLength uint32) error
-	// Incoming message handlers
-	handleGetSharedFileList(reader *messages.MessageReader) (map[string]any, error)
-	handleSharedFileListResponse(reader *messages.MessageReader, messageLength uint32) (map[string]any, error)
-	handleFolderContentsRequest(reader *messages.MessageReader) (map[string]any, error)
-	handleFileSearchResponse(reader *messages.MessageReader, messageLength uint32) (map[string]any, error)
-	handleTransferRequest(reader *messages.MessageReader) (map[string]any, error)
-	handleTransferResponse(reader *messages.MessageReader) (map[string]any, error)
-	handleQueueUpload(reader *messages.MessageReader) (map[string]any, error)
-	handlePlaceInQueueResponse(reader *messages.MessageReader) (map[string]any, error)
-	handleUploadFailed(reader *messages.MessageReader) (map[string]any, error)
-	handleUploadDenied(reader *messages.MessageReader) (map[string]any, error)
-	handlePlaceInQueueRequest(reader *messages.MessageReader) (map[string]any, error)
-
-	// Outgoing messages
-	SharedFileListResponse(shares *fileshare.Shared)
-	FileSearchResponse(username string, token uint32, results []fileshare.SharedFile)
-	TransferRequest(direction uint32, filename string, filesize uint64)
-	TransferResponse(token uint32, allowed bool)
-	QueueUpload(filename string)
-	PlaceInQueueResponse(filename string, place uint32)
-	UploadFailed(filename string)
-	UploadDenied(filename string, reason string)
-	PlaceInQueueRequest(filename string)
-}
-
-type defaultPeer = Peer
-
-func (peer *defaultPeer) handleMessage(messageData []byte, messageLength uint32) error {
+func (peer *DefaultPeer) handleMessage(messageData []byte, messageLength uint32) error {
 	reader := messages.NewMessageReader(messageData)
 	code := reader.ReadInt32()
 	peer.logger.Debug("handling message",
@@ -94,18 +65,20 @@ func (peer *defaultPeer) handleMessage(messageData []byte, messageLength uint32)
 // ---------------------------
 // ---------------------------
 // this is too much jumping around
-func (peer *defaultPeer) handleGetSharedFileList(reader *messages.MessageReader) (map[string]any, error) {
+func (peer *DefaultPeer) handleGetSharedFileList(reader *messages.MessageReader) (map[string]any, error) {
 	peer.mgrCh <- PeerEvent{
-		Type: SharedFileListRequest,
-		Peer: peer,
-		Msg:  SharedFileListMsg{},
+		Type:     SharedFileListRequest,
+		Username: peer.Username,
+		Host:     peer.Host,
+		Port:     peer.Port,
+		Msg:      SharedFileListMsg{},
 	}
 
 	peer.logger.Info("Received SharedFileListRequest", "peer", peer.Username)
 	return nil, nil
 }
 
-func (peer *defaultPeer) handleSharedFileListResponse(reader *messages.MessageReader, messageLength uint32) (map[string]any, error) {
+func (peer *DefaultPeer) handleSharedFileListResponse(reader *messages.MessageReader, messageLength uint32) (map[string]any, error) {
 	// Get the compressed content
 	compressedData := reader.Message[reader.Pointer:messageLength]
 
@@ -180,10 +153,10 @@ func (peer *defaultPeer) handleSharedFileListResponse(reader *messages.MessageRe
 	}, nil
 }
 
-func (peer *defaultPeer) handleFolderContentsRequest(reader *messages.MessageReader) (map[string]any, error) {
+func (peer *DefaultPeer) handleFolderContentsRequest(reader *messages.MessageReader) (map[string]any, error) {
 	token := reader.ReadInt32()
 	folderName := reader.ReadString()
-	peer.mgrCh <- PeerEvent{Type: FolderContentsRequest, Peer: peer, Msg: FolderContentsMsg{Token: token, FolderName: folderName}}
+	peer.mgrCh <- PeerEvent{Type: FolderContentsRequest, Username: peer.Username, Host: peer.Host, Port: peer.Port, Msg: FolderContentsMsg{Token: token, FolderName: folderName}}
 	peer.logger.Info("Received FolderContentsRequest", "peer", peer.Username)
 	return map[string]any{
 		"type":   "FolderContentsRequest",
@@ -192,7 +165,7 @@ func (peer *defaultPeer) handleFolderContentsRequest(reader *messages.MessageRea
 	}, nil
 }
 
-func (peer *defaultPeer) handleFileSearchResponse(reader *messages.MessageReader, messageLength uint32) (map[string]any, error) {
+func (peer *DefaultPeer) handleFileSearchResponse(reader *messages.MessageReader, messageLength uint32) (map[string]any, error) {
 	// Get the compressed content using the message length
 	compressedData := reader.Message[reader.Pointer:messageLength]
 
@@ -266,7 +239,7 @@ func (peer *defaultPeer) handleFileSearchResponse(reader *messages.MessageReader
 	result.AvgSpeed = decompressedReader.ReadInt32()
 	result.QueuePosition = decompressedReader.ReadInt32()
 
-	peer.mgrCh <- PeerEvent{Type: FileSearchResponse, Peer: peer, Msg: FileSearchMsg{Token: result.Token, Results: result}}
+	peer.mgrCh <- PeerEvent{Type: FileSearchResponse, Username: peer.Username, Host: peer.Host, Port: peer.Port, Msg: FileSearchMsg{Token: result.Token, Results: result}}
 
 	peer.logger.Info("Received FileSearchResponse", "peer", peer.Username, "results", result)
 	return map[string]any{
@@ -275,7 +248,7 @@ func (peer *defaultPeer) handleFileSearchResponse(reader *messages.MessageReader
 	}, nil
 }
 
-func (peer *defaultPeer) handleTransferRequest(reader *messages.MessageReader) (map[string]any, error) {
+func (peer *DefaultPeer) handleTransferRequest(reader *messages.MessageReader) (map[string]any, error) {
 	direction := reader.ReadInt32()
 	if direction != 1 {
 		return nil, fmt.Errorf("invalid transfer direction: %d", direction)
@@ -296,19 +269,30 @@ func (peer *defaultPeer) handleTransferRequest(reader *messages.MessageReader) (
 	result["filesize"] = filesize
 	peer.logger.Info("Received TransferRequest", "peer", peer.Username, "filename", filename, "filesize", filesize, "token", token)
 
-	// Initialize transfer tracking
-	peer.transfersMutex.Lock()
-	if peer.pendingTransfers == nil {
-		peer.pendingTransfers = make(map[uint32]*FileTransfer)
+	peer.mgrCh <- PeerEvent{
+		Type:     DownloadRequest,
+		ConnType: PeerTypeDefault,
+		Username: peer.Username,
+		Host:     peer.Host,
+		Port:     peer.Port,
+		Msg: DownloadRequestMsg{
+			Token:        token,
+			Filename:     filename,
+			Size:         uint64(filesize),
+			PeerUsername: peer.Username,
+		},
 	}
-	peer.pendingTransfers[token] = &FileTransfer{
-		Filename:     filename,
-		Size:         uint64(filesize),
-		PeerUsername: peer.Username,
-		Token:        token,
-		Buffer:       bytes.NewBuffer(make([]byte, 0, filesize)),
-	}
-	peer.transfersMutex.Unlock()
+	// peer.transfersMutex.Lock()
+	// if peer.pendingTransfers == nil {
+	// 	peer.pendingTransfers = make(map[uint32]*FileTransfer)
+	// }
+	// peer.pendingTransfers[token] = &FileTransfer{
+	// 	Filename:     filename,
+	// 	Size:         uint64(filesize),
+	// 	PeerUsername: peer.Username,
+	// 	Token:        token,
+	// }
+	// peer.transfersMutex.Unlock()
 
 	// Tell the peer we're ready to receive
 	// We expect to recieve an "F" connection after this
@@ -320,7 +304,9 @@ func (peer *defaultPeer) handleTransferRequest(reader *messages.MessageReader) (
 	}, nil
 }
 
-func (peer *defaultPeer) handleTransferResponse(reader *messages.MessageReader) (map[string]any, error) {
+// we receive this from a peer that wants to download a file from us
+// if allowed == true, we should attempt to start uploading the file to the peer
+func (peer *DefaultPeer) handleTransferResponse(reader *messages.MessageReader) (map[string]any, error) {
 	token := reader.ReadInt32()
 	allowed := reader.ReadInt8() == 1
 
@@ -333,8 +319,20 @@ func (peer *defaultPeer) handleTransferResponse(reader *messages.MessageReader) 
 		result["reason"] = reader.ReadString()
 	}
 
-	// TODO: start uploading file here
 	peer.logger.Info("Received TransferResponse", "peer", peer.Username, "token", token, "allowed", allowed)
+	if allowed {
+		peer.mgrCh <- PeerEvent{
+			Type:     UploadStart,
+			Username: peer.Username,
+			Host:     peer.Host,
+			Port:     peer.Port,
+			Msg: UploadStartMsg{
+				Token:    token,
+				Username: peer.Username,
+			},
+		}
+
+	}
 	return map[string]any{
 		"type":   "TransferResponse",
 		"result": result,
@@ -342,18 +340,20 @@ func (peer *defaultPeer) handleTransferResponse(reader *messages.MessageReader) 
 }
 
 // Peer tells us that we should queue a file for transfer. Send transfer request here
-func (peer *defaultPeer) handleQueueUpload(reader *messages.MessageReader) (map[string]any, error) {
+func (peer *DefaultPeer) handleQueueUpload(reader *messages.MessageReader) (map[string]any, error) {
 	filename := reader.ReadString()
 
+	// Send UploadRequest event to PeerManager
+	// PeerManager will create the upload in UploadManager and search for the file
 	peer.mgrCh <- PeerEvent{
-		Type: UploadRequest,
-		Peer: peer,
+		Type:     UploadRequest,
+		Username: peer.Username,
+		Host:     peer.Host,
+		Port:     peer.Port,
 		Msg: UploadRequestMsg{
 			Filename: filename,
 		},
 	}
-
-	peer.TransferRequest(1, filename, 0)
 
 	peer.logger.Info("Received QueueUpload", "peer", peer.Username, "filename", filename)
 	return map[string]any{
@@ -362,11 +362,11 @@ func (peer *defaultPeer) handleQueueUpload(reader *messages.MessageReader) (map[
 	}, nil
 }
 
-func (peer *defaultPeer) handlePlaceInQueueResponse(reader *messages.MessageReader) (map[string]any, error) {
+func (peer *DefaultPeer) handlePlaceInQueueResponse(reader *messages.MessageReader) (map[string]any, error) {
 	filename := reader.ReadString()
 	place := reader.ReadInt32()
 
-	peer.mgrCh <- PeerEvent{Type: PlaceInQueueResponse, Peer: peer, Msg: PlaceInQueueMsg{Filename: filename, Place: place}}
+	peer.mgrCh <- PeerEvent{Type: PlaceInQueueResponse, Username: peer.Username, Host: peer.Host, Port: peer.Port, Msg: PlaceInQueueMsg{Filename: filename, Place: place}}
 
 	return map[string]any{
 		"type":     "PlaceInQueueResponse",
@@ -376,7 +376,7 @@ func (peer *defaultPeer) handlePlaceInQueueResponse(reader *messages.MessageRead
 }
 
 // UploadFailed handling
-func (peer *defaultPeer) handleUploadFailed(reader *messages.MessageReader) (map[string]any, error) {
+func (peer *DefaultPeer) handleUploadFailed(reader *messages.MessageReader) (map[string]any, error) {
 	filename := reader.ReadString()
 
 	peer.logger.Info("Received UploadFailed", "peer", peer.Username, "filename", filename)
@@ -387,7 +387,7 @@ func (peer *defaultPeer) handleUploadFailed(reader *messages.MessageReader) (map
 }
 
 // UploadDenied handling
-func (peer *defaultPeer) handleUploadDenied(reader *messages.MessageReader) (map[string]any, error) {
+func (peer *DefaultPeer) handleUploadDenied(reader *messages.MessageReader) (map[string]any, error) {
 	filename := reader.ReadString()
 	reason := reader.ReadString()
 
@@ -399,7 +399,7 @@ func (peer *defaultPeer) handleUploadDenied(reader *messages.MessageReader) (map
 	}, nil
 }
 
-func (peer *defaultPeer) handlePlaceInQueueRequest(reader *messages.MessageReader) (map[string]any, error) {
+func (peer *DefaultPeer) handlePlaceInQueueRequest(reader *messages.MessageReader) (map[string]any, error) {
 	filename := reader.ReadString()
 	return map[string]any{
 		"type":     "PlaceInQueueRequest",
@@ -416,7 +416,7 @@ func (peer *defaultPeer) handlePlaceInQueueRequest(reader *messages.MessageReade
 // ---------------------------
 // ---------------------------
 // ---------------------------
-func (peer *defaultPeer) SharedFileListResponse(shares *fileshare.Shared) {
+func (peer *DefaultPeer) SharedFileListResponse(shares *fileshare.Shared) {
 	mb := messages.NewMessageBuilder()
 	mb.AddInt32(shares.GetShareStats().TotalFolders)
 
@@ -458,7 +458,7 @@ func (peer *defaultPeer) SharedFileListResponse(shares *fileshare.Shared) {
 	peer.SendMessage(mb.Build(5))
 }
 
-func (peer *defaultPeer) FileSearchResponse(username string, token uint32, results []fileshare.SharedFile) {
+func (peer *DefaultPeer) FileSearchResponse(username string, token uint32, results []fileshare.SharedFile) {
 	// Create a message builder for the uncompressed data
 	mb := messages.NewMessageBuilder()
 
@@ -507,7 +507,8 @@ func (peer *defaultPeer) FileSearchResponse(username string, token uint32, resul
 	peer.SendMessage(mb.Build(9))
 }
 
-func (peer *defaultPeer) TransferRequest(direction uint32, filename string, filesize uint64) {
+// We send this when we want to upload a file to a peer (peer wants to download from us)
+func (peer *DefaultPeer) TransferRequest(direction uint32, filename string, filesize uint64) {
 	mb := messages.NewMessageBuilder()
 	token := uint32(rand.Int32())
 	mb.AddInt32(direction)
@@ -517,22 +518,11 @@ func (peer *defaultPeer) TransferRequest(direction uint32, filename string, file
 		mb.AddInt64(filesize)
 	}
 
-	peer.mgrCh <- PeerEvent{
-		Type: TransferRequest,
-		Peer: peer,
-		Msg: TransferRequestMsg{
-			Token:        token,
-			Filename:     filename,
-			PeerUsername: peer.Username,
-			Size:         filesize,
-		},
-	}
-
 	peer.logger.Info("Sending TransferRequest", "filename", filename, "peer", peer.Username)
 	peer.SendMessage(mb.Build(40))
 }
 
-func (peer *defaultPeer) TransferResponse(token uint32, allowed bool) {
+func (peer *DefaultPeer) TransferResponse(token uint32, allowed bool) {
 	mb := messages.NewMessageBuilder()
 
 	mb.AddInt32(token)
@@ -548,7 +538,7 @@ func (peer *defaultPeer) TransferResponse(token uint32, allowed bool) {
 }
 
 // Tell the peer that we want to download a file, i.e. they should queue an upload on their end
-func (peer *defaultPeer) QueueUpload(filename string) {
+func (peer *DefaultPeer) QueueUpload(filename string) {
 	mb := messages.NewMessageBuilder()
 	mb.AddString(filename)
 
@@ -556,7 +546,7 @@ func (peer *defaultPeer) QueueUpload(filename string) {
 	peer.SendMessage(mb.Build(43))
 }
 
-func (peer *defaultPeer) PlaceInQueueResponse(filename string, place uint32) {
+func (peer *DefaultPeer) PlaceInQueueResponse(filename string, place uint32) {
 	mb := messages.NewMessageBuilder()
 	mb.AddString(filename)
 	mb.AddInt32(place)
@@ -564,7 +554,7 @@ func (peer *defaultPeer) PlaceInQueueResponse(filename string, place uint32) {
 	peer.SendMessage(mb.Build(44))
 }
 
-func (peer *defaultPeer) UploadFailed(filename string) {
+func (peer *DefaultPeer) UploadFailed(filename string) {
 	mb := messages.NewMessageBuilder()
 	mb.AddString(filename)
 
@@ -572,7 +562,7 @@ func (peer *defaultPeer) UploadFailed(filename string) {
 	peer.SendMessage(mb.Build(46))
 }
 
-func (peer *defaultPeer) UploadDenied(filename string, reason string) {
+func (peer *DefaultPeer) UploadDenied(filename string, reason string) {
 	mb := messages.NewMessageBuilder()
 	mb.AddString(filename)
 	mb.AddString(reason)
@@ -581,7 +571,7 @@ func (peer *defaultPeer) UploadDenied(filename string, reason string) {
 	peer.SendMessage(mb.Build(50))
 }
 
-func (peer *defaultPeer) PlaceInQueueRequest(filename string) {
+func (peer *DefaultPeer) PlaceInQueueRequest(filename string) {
 	mb := messages.NewMessageBuilder()
 	mb.AddString(filename)
 

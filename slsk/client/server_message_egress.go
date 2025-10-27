@@ -12,6 +12,7 @@ func (c *SlskClient) Send(msg []byte) {
 func (c *SlskClient) Login(username string, password string) {
 	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	msg := mb.Login(username, password)
+	c.logger.Info("Sending Login", "username", username)
 	c.Send(msg)
 }
 
@@ -27,6 +28,7 @@ func (c *SlskClient) SetStatus(status uint32) {
 func (c *SlskClient) SetWaitPort(port uint32) {
 	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	msg := mb.SetWaitPort(port)
+	c.logger.Info("Sending SetWaitPort", "port", port)
 	c.Send(msg)
 }
 
@@ -52,40 +54,55 @@ func (c *SlskClient) FileSearch(query string) uint32 {
 	return t
 }
 
-func (c *SlskClient) ConnectToPeer(username string, connType string, token uint32) {
-	if peer := c.PeerManager.GetPeer(username); peer != nil {
-		return
+// RequestPeerConnection sends a ConnectToPeer message to the server (does NOT open a TCP connection)
+// The server will coordinate with the peer for connection establishment
+func (c *SlskClient) RequestPeerConnection(username string, connType string, token uint32, isParent bool) {
+	if connType == "P" {
+		if peer := c.PeerManager.GetDefaultPeer(username); peer != nil {
+			c.logger.Warn("Existing connection to this peer-- skipping connection request",
+				"username", username, "type", connType)
+			return
+		}
 	}
-	var t uint32
-	if token == 0 {
-		t = uint32(rand.Int32()) // rand.Int32() returns non-negative, this is safe
-	} else {
-		t = token
+	if connType == "D" {
+		if peer := c.PeerManager.GetDistributedPeer(username); peer != nil {
+			c.logger.Warn("Existing connection to this peer-- skipping connection request",
+				"username", username, "type", connType)
+			return
+		}
+	}
+	if connType == "F" {
+		if peer := c.PeerManager.GetFileTransferPeer(username); peer != nil {
+			c.logger.Warn("Existing connection to this peer-- skipping connection request",
+				"username", username, "type", connType)
+			return
+		}
 	}
 
-	if connInfo, found := c.GetPendingPeer(username); found {
-		if connInfo.connType == connType {
-			c.logger.Warn("Peer already pending-- skipping ConnectToPeer")
+	if connInfo, found := c.PeerManager.GetPendingConnection(username); found {
+		if connInfo.ConnType == connType {
+			c.logger.Warn("Peer already pending-- skipping connection request")
 			return
 		}
 
 		// if connection type is different, remove it since we are about to add it again
-		c.RemovePendingPeer(username)
+		c.PeerManager.RemovePendingConnection(username)
 	}
 
-	c.logger.Info("Sending ConnectToPeer",
-		"token", t,
+	c.logger.Info("Sending ConnectToPeer message to server",
+		"token", token,
 		"username", username,
 		"connType", connType,
+		"isParent", isParent,
 	)
 
-	c.AddPendingPeer(username, t, connType, 0)
+	c.PeerManager.AddPendingConnection(username, token, connType, 0, isParent)
 
 	// Attempt to get IP of user so that we can send a direct connection request
 	c.GetPeerAddress(username)
 
 	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
-	msg := mb.ConnectToPeer(t, username, connType)
+	msg := mb.ConnectToPeer(token, username, connType)
 	c.Send(msg)
 
 }
@@ -134,6 +151,7 @@ func (c *SlskClient) SharedFoldersFiles(folderCount, fileCount uint32) {
 func (c *SlskClient) HaveNoParent(haveNoParent uint8) {
 	mb := messages.ServerMessageBuilder{MessageBuilder: messages.NewMessageBuilder()}
 	msg := mb.HaveNoParent(haveNoParent)
+	c.logger.Info("Sending HaveNoParent", "hasNoParent", haveNoParent)
 	c.Send(msg)
 }
 

@@ -1,6 +1,9 @@
 package peer
 
-import "spotseek/slsk/fileshare"
+import (
+	"spotseek/slsk/fileshare"
+	"time"
+)
 
 type Event int
 
@@ -10,9 +13,11 @@ const (
 	SharedFileListRequest
 	FolderContentsRequest
 	PlaceInQueueResponse
+	UploadStart
 	UploadRequest
-	TransferRequest
+	UploadProgress
 	UploadComplete
+	DownloadRequest
 	DownloadProgress
 	DownloadComplete
 	DownloadFailed
@@ -21,9 +26,12 @@ const (
 )
 
 type PeerEvent struct {
-	Type Event
-	Peer *Peer
-	Msg  any
+	Type     Event
+	ConnType PeerType
+	Username string
+	Host     string
+	Port     uint32
+	Msg      any
 }
 
 type FolderContentsMsg struct {
@@ -43,16 +51,29 @@ type PlaceInQueueMsg struct {
 	Place    uint32
 }
 
-type TransferRequestMsg struct {
+type DownloadRequestMsg struct {
 	Token        uint32
 	Filename     string
 	PeerUsername string
 	Size         uint64
 }
 
-type UploadCompleteMsg struct {
+type UploadStartMsg struct {
 	Token    uint32
-	Filename string
+	Username string
+}
+
+type UploadProgressMsg struct {
+	Username  string
+	Filename  string
+	BytesSent uint64
+	Token     uint32
+}
+
+type UploadCompleteMsg struct {
+	Token       uint32
+	Filename    string
+	TimeElapsed time.Duration
 }
 
 type DistribSearchMsg struct {

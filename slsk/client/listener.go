@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"spotseek/slsk/messages"
+	peers "spotseek/slsk/peer"
 	"time"
 )
 
@@ -101,7 +102,7 @@ func readPeerInitMessage(conn net.Conn) ([]byte, error) {
 
 func (c *SlskClient) handlePierceFirewall(conn net.Conn, mr *messages.MessageReader) (map[string]any, error) {
 	token := mr.ReadInt32()
-	connInfo, ok := c.PendingTokens[token]
+	connInfo, ok := c.PeerManager.GetPendingConnectionByToken(token)
 	if !ok {
 		c.logger.Error("No pending connection for token", "token", token)
 		return map[string]any{
@@ -109,45 +110,72 @@ func (c *SlskClient) handlePierceFirewall(conn net.Conn, mr *messages.MessageRea
 		}, nil
 	}
 
-	username := connInfo.username
+	username := connInfo.Username
 	c.logger.Info("Received PierceFirewall", "peer", username)
 	host, port, err := SplitHostPort(conn)
 	if err != nil {
 		return nil, err
 	}
-	c.RemovePendingPeer(connInfo.username)
+	c.PeerManager.RemovePendingConnection(connInfo.Username)
 
-	peer := c.PeerManager.AddPeer(username, connInfo.connType, host, port, token, connInfo.privileged, conn)
-	if peer == nil {
-		return nil, fmt.Errorf("failed to connect to peer: %v", peer)
+	// Add peer from existing connection
+	err = c.PeerManager.AddPeerFromExistingConn(username, connInfo.ConnType, host, port, token, connInfo.Privileged, conn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add peer from connection: %w", err)
 	}
-	if connInfo.connType == "F" {
-		key := fmt.Sprintf("%s_%d", username, token)
-		transfer, exists := c.PendingTransferReqs[key]
-		if !exists {
-			return nil, fmt.Errorf("got F connection but no pending file transfers found")
-		}
-		go peer.UploadFile(transfer)
-		delete(c.PendingTransferReqs, key) // TODO: maybe should wait for an upload complete event
 
-	} else {
+	// If we receive PierceFirewall from a peer with F connection, it means we should start uploading a file to them
+	// TODO: can we handle more than 1 file at a time?
+	if connInfo.ConnType == "F" {
+		ftPeer := c.PeerManager.GetFileTransferPeer(username)
+		if ftPeer == nil {
+			return nil, fmt.Errorf("file transfer peer not found after adding connection")
+		}
+
+		upload, err := c.UploadManager.GetUploadByUserToken(username, token)
+		if err != nil {
+			return nil, fmt.Errorf("failed to search for upload for user %s and token %d", username, token)
+		}
+		if upload == nil {
+			return nil, fmt.Errorf("pending download not found for user %s and token %d", username, token)
+		}
+
+		// create the transfer struct
+		transfer := peers.FileTransfer{
+			Filename:     upload.Filename,
+			Size:         upload.Size,
+			PeerUsername: username,
+			Token:        token,
+			Offset:       upload.BytesSent,
+		}
+		ftPeer.FileTransferInit(token)
+		ftPeer.FileOffset(transfer.Offset)
+
+		// start transferring to peer
+		go ftPeer.UploadFile(transfer)
+
+	} else if connInfo.ConnType == "P" {
+		// Get the default peer
+		peer := c.PeerManager.GetDefaultPeer(username)
+		if peer == nil {
+			return nil, fmt.Errorf("default peer not found after adding connection")
+		}
+
 		// Send any stored search results for this peer
-		storedSearchResultsForPeer := c.DistribSearchResults[username]
+		storedSearchResultsForPeer := c.SearchResults[username]
 		for _, res := range storedSearchResultsForPeer {
 			peer.FileSearchResponse(username, res.token, res.files)
 		}
-		delete(c.DistribSearchResults, username)
+		delete(c.SearchResults, username)
 
 		// Send QueueUpload for any pending downloads
 		pendingDownloads := c.DownloadManager.GetPendingForPeer(username)
 		for _, dl := range pendingDownloads {
 			peer.QueueUpload(dl.Filename)
-			// Update download status from "connecting" to "queued"
-			dl.UpdateStatus("queued")
+			// dl.UpdateStatus("queued")
 		}
-		c.DownloadManager.ClearPendingForPeer(username)
-
-		go peer.Listen()
+	} else if connInfo.ConnType == "D" {
+		// Distributed peer is already started by AddPeerFromExistingConn
 	}
 	return map[string]any{
 		"token": token,
@@ -162,15 +190,14 @@ func (c *SlskClient) handlePeerInit(conn net.Conn, mr *messages.MessageReader) (
 	if err != nil {
 		return nil, err
 	}
-	peer := c.PeerManager.AddPeer(username, connType, host, port, 0, 0, conn)
-	if peer == nil {
-		return nil, fmt.Errorf("failed to connect to peer: %v", peer)
+
+	// Add peer from existing connection
+	err = c.PeerManager.AddPeerFromExistingConn(username, connType, host, port, 0, 0, conn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add peer from connection: %w", err)
 	}
-	if connType == "F" {
-		go peer.FileListen()
-	} else {
-		go peer.Listen()
-	}
+
+	// Note: AddPeerFromExistingConn already starts the listener for P and D connections
 	return map[string]any{
 		"username": username,
 		"connType": connType,

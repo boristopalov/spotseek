@@ -1,20 +1,71 @@
 package peer
 
 import (
+	"encoding/binary"
+	"io"
 	"spotseek/slsk/messages"
 )
 
-type DistributedPeer interface {
-	handleDistribMessage(messageData []byte)
-	handleSearch(mr *messages.MessageReader)
-	handleBranchLevel(mr *messages.MessageReader)
-	handleDistributedMessage(mr *messages.MessageReader)
-	SendMessage(msg []byte) error
+// Listen method for DistributedPeer
+func (peer *DistributedPeer) Listen() {
+	readBuffer := make([]byte, 4096)
+	var currentMessage []byte
+	var messageLength uint32
+
+	defer func() {
+		peer.mgrCh <- PeerEvent{Type: PeerDisconnected, Username: peer.Username, Host: peer.Host, Port: peer.Port}
+	}()
+
+	for {
+		n, err := peer.Conn.Read(readBuffer)
+		if err != nil {
+			if err == io.EOF {
+				peer.logger.Warn("Distributed peer closed the connection",
+					"peer", peer.Username)
+				return
+			}
+			peer.logger.Error("Error reading from distributed peer",
+				"peer", peer.Username,
+				"err", err)
+			return
+		}
+		peer.logger.Debug("received message from distributed peer",
+			"length", n,
+			"peer", peer.Username)
+		currentMessage = append(currentMessage, readBuffer[:n]...)
+		currentMessage, messageLength = peer.processMessage(currentMessage, messageLength)
+	}
 }
 
-type distributedPeer = Peer
+func (peer *DistributedPeer) processMessage(data []byte, messageLength uint32) ([]byte, uint32) {
+	if len(data) == 0 {
+		return data, messageLength
+	}
+	for {
+		if messageLength == 0 {
+			if len(data) < 4 {
+				return data, messageLength
+			}
+			messageLength = binary.LittleEndian.Uint32(data[:4])
+			data = data[4:]
+		}
 
-func (peer *distributedPeer) handleDistribMessage(messageData []byte) {
+		if uint32(len(data)) < messageLength {
+			return data, messageLength
+		}
+
+		peer.handleDistribMessage(data[:messageLength])
+
+		data = data[messageLength:]
+		messageLength = 0
+
+		if len(data) == 0 {
+			return data, messageLength
+		}
+	}
+}
+
+func (peer *DistributedPeer) handleDistribMessage(messageData []byte) {
 	mr := messages.NewMessageReader(messageData)
 	code := mr.ReadInt8()
 
@@ -30,7 +81,7 @@ func (peer *distributedPeer) handleDistribMessage(messageData []byte) {
 	}
 }
 
-func (peer *distributedPeer) handleSearch(mr *messages.MessageReader) {
+func (peer *DistributedPeer) handleSearch(mr *messages.MessageReader) {
 	mr.ReadInt32() // unknown field
 	username := mr.ReadString()
 	token := mr.ReadInt32()
@@ -44,13 +95,13 @@ func (peer *distributedPeer) handleSearch(mr *messages.MessageReader) {
 	// peer.logger.Info("received DistributedSearchMessage", "username", username, "token", token, "query", query)
 }
 
-func (peer *distributedPeer) handleBranchLevel(mr *messages.MessageReader) {
+func (peer *DistributedPeer) handleBranchLevel(mr *messages.MessageReader) {
 	level := mr.ReadInt32()
 	peer.BranchLevel = level
 	peer.logger.Info("Received DistributedBranchLevelMessage", "level", level, "peer", peer.Username)
 }
 
-func (peer *distributedPeer) handleBranchRoot(mr *messages.MessageReader) (map[string]any, error) {
+func (peer *DistributedPeer) handleBranchRoot(mr *messages.MessageReader) (map[string]any, error) {
 	branchRoot := mr.ReadString()
 	peer.BranchRoot = branchRoot
 	peer.logger.Info("Received DistributedBranchRootMessage", "branchRoot", branchRoot, "peer", peer.Username)
@@ -60,6 +111,6 @@ func (peer *distributedPeer) handleBranchRoot(mr *messages.MessageReader) (map[s
 	}, nil
 }
 
-func (peer *distributedPeer) handleDistributedMessage(mr *messages.MessageReader) {
+func (peer *DistributedPeer) handleDistributedMessage(mr *messages.MessageReader) {
 	peer.handleDistribMessage(mr.Message)
 }

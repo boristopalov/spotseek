@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"sync"
 
 	"github.com/joho/godotenv"
 )
@@ -25,7 +24,6 @@ var (
 	DEFAULT_SHARE_PATH string
 
 	settings *Settings
-	once     sync.Once
 )
 
 type Settings struct {
@@ -85,9 +83,8 @@ func GetSettings() *Settings {
 	}
 	settingsPath := getSettingsPath()
 
-	// Default settings
 	settings := &Settings{
-		DownloadPath: filepath.Join(os.Getenv("HOME"), "Downloads"),
+		DownloadPath: filepath.Join(os.Getenv("HOME"), ".spotseek", "downloads"),
 		SharePaths:   []string{DEFAULT_SHARE_PATH},
 		shareLinks:   make(map[string]string),
 	}

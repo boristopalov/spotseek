@@ -3,6 +3,7 @@ package downloads
 import (
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 )
@@ -25,7 +26,6 @@ type DownloadKey struct {
 }
 
 type Download struct {
-	SearchID      *uint32        `json:"searchId,omitempty"` // Optional link to search
 	Username      string         `json:"username"`
 	Filename      string         `json:"filename"` // Full virtual path
 	Size          uint64         `json:"size"`     // Expected file size
@@ -109,7 +109,7 @@ func NewDownloadManager(ttl time.Duration, logger *slog.Logger) *DownloadManager
 	return dm
 }
 
-func (dm *DownloadManager) CreateDownload(searchID *uint32, username, filename string, size uint64) *Download {
+func (dm *DownloadManager) CreateDownload(username, filename string, token uint32, size uint64) (*Download, error) {
 	dm.mu.Lock()
 	defer dm.mu.Unlock()
 
@@ -117,18 +117,18 @@ func (dm *DownloadManager) CreateDownload(searchID *uint32, username, filename s
 
 	// Check if already exists
 	if existing, exists := dm.downloads[key]; exists {
-		dm.logger.Warn("Download already exists",
+		dm.logger.Info("Download already exists",
 			"username", username,
 			"filename", filename,
 			"status", existing.Status)
-		return existing
+		return nil, fmt.Errorf("download already exists")
 	}
 
 	download := &Download{
-		SearchID:  searchID,
 		Username:  username,
 		Filename:  filename,
 		Size:      size,
+		Token:     token,
 		Status:    DownloadPending,
 		CreatedAt: time.Now(),
 	}
@@ -140,7 +140,7 @@ func (dm *DownloadManager) CreateDownload(searchID *uint32, username, filename s
 		"filename", filename,
 	)
 
-	return download
+	return download, nil
 }
 
 func (dm *DownloadManager) GetDownload(username, filename string) (*Download, error) {
@@ -207,12 +207,15 @@ func (dm *DownloadManager) UpdateStatus(username, filename string, status Downlo
 		"status", status,
 	)
 
-	// Remove from active downloads on terminal state (allows re-download)
+	// Remove from active downloads on terminal state
+	// give it a few min tho
 	if status == DownloadCompleted || status == DownloadFailed || status == DownloadCancelled {
-		dm.mu.Lock()
-		key := DownloadKey{Username: username, Filename: filename}
-		delete(dm.downloads, key)
-		dm.mu.Unlock()
+		time.AfterFunc(10*time.Minute, func() {
+			dm.mu.Lock()
+			key := DownloadKey{Username: username, Filename: filename}
+			delete(dm.downloads, key)
+			dm.mu.Unlock()
+		})
 	}
 
 	return nil
@@ -282,7 +285,7 @@ func (dm *DownloadManager) cleanupCompletedDownloads() {
 		for key, download := range dm.downloads {
 			if download.CompletedAt != nil && now.Sub(*download.CompletedAt) > dm.ttl {
 				delete(dm.downloads, key)
-				dm.logger.Debug("Cleaned up completed download",
+				dm.logger.Info("Cleaned up completed download",
 					"username", download.Username,
 					"filename", download.Filename,
 					"status", download.Status,
@@ -299,19 +302,23 @@ func (dm *DownloadManager) AddPendingForPeer(username, filename string) {
 	defer dm.mu.Unlock()
 	key := DownloadKey{Username: username, Filename: filename}
 	dm.pendingByPeer[username] = append(dm.pendingByPeer[username], key)
-	dm.logger.Debug("Added pending download for peer",
+	dm.logger.Info("Added pending download for peer",
 		"username", username,
 		"filename", filename,
 	)
 }
 
 // GetPendingForPeer returns all downloads waiting for a peer connection
-func (dm *DownloadManager) GetPendingForPeer(username string) []*Download {
+func (dm *DownloadManager) GetPendingForPeer(username string) []DownloadKey {
 	dm.mu.RLock()
 	downloadKeys := dm.pendingByPeer[username]
 	dm.mu.RUnlock()
 
-	downloads := make([]*Download, 0, len(downloadKeys))
+	return downloadKeys
+}
+
+func (dm *DownloadManager) GetDownloads(downloadKeys []DownloadKey) []*Download {
+	downloads := make([]*Download, 0)
 	for _, key := range downloadKeys {
 		dm.mu.RLock()
 		download, exists := dm.downloads[key]
@@ -323,10 +330,22 @@ func (dm *DownloadManager) GetPendingForPeer(username string) []*Download {
 	return downloads
 }
 
-// ClearPendingForPeer removes all pending downloads for a peer
-func (dm *DownloadManager) ClearPendingForPeer(username string) {
+// ClearAllPendingForPeer removes all pending downloads for a peer
+func (dm *DownloadManager) ClearAllPendingForPeer(username string) {
 	dm.mu.Lock()
 	defer dm.mu.Unlock()
 	delete(dm.pendingByPeer, username)
-	dm.logger.Debug("Cleared pending downloads for peer", "username", username)
+	dm.logger.Info("Cleared pending downloads for peer", "username", username)
+}
+
+// ClearPendingForPeer removes all pending downloads for a peer
+func (dm *DownloadManager) ClearPendingForPeer(username, filename string) {
+	pending := dm.GetPendingForPeer(username)
+	pending = slices.DeleteFunc(pending, func(key DownloadKey) bool {
+		return key.Filename == filename
+	})
+	dm.mu.Lock()
+	dm.pendingByPeer[username] = pending
+	dm.mu.Unlock()
+	dm.logger.Info("Cleared pending downloads for peer", "username", username)
 }
