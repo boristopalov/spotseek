@@ -437,6 +437,8 @@ func (manager *PeerManager) listenForEvents() {
 			// Close P connection - we'll get a new F connection for the actual transfer
 			if peer := manager.GetDefaultPeer(event.Username); peer != nil {
 				peer.Close()
+			} else {
+				manager.logger.Warn("peer already disconnected", "peer", peer.Username)
 			}
 
 		case SharedFileListRequest:
@@ -543,12 +545,21 @@ func (manager *PeerManager) listenForEvents() {
 
 		case DownloadFailed:
 			msg := event.Msg.(DownloadFailedMsg)
-			err := manager.downloadManager.SetError(msg.Username, msg.Filename, msg.Error)
+			dl, err := manager.downloadManager.GetDownload(msg.Username, msg.Filename)
 			if err != nil {
-				manager.logger.Warn("Failed to set download error",
-					"username", msg.Username,
-					"filename", msg.Filename,
-					"err", err)
+				manager.logger.Error("failed to get download", "peer", msg.Username, "file", msg.Filename)
+			} else {
+				// We get this message even if a download completed successfully
+				// Only set an error if the download status is not Completed, otherwise we can ignore
+				if dl.Status != downloads.DownloadCompleted {
+					err = manager.downloadManager.SetError(msg.Username, msg.Filename, msg.Error)
+					if err != nil {
+						manager.logger.Error("Failed to set download error",
+							"username", msg.Username,
+							"filename", msg.Filename,
+							"err", err)
+					}
+				}
 			}
 			manager.RemovePeer(event.Username, event.ConnType)
 
@@ -556,7 +567,7 @@ func (manager *PeerManager) listenForEvents() {
 			msg := event.Msg.(PlaceInQueueMsg)
 			err := manager.downloadManager.SetQueuePosition(event.Username, msg.Filename, msg.Place)
 			if err != nil {
-				manager.logger.Debug("Failed to set queue position (may not be a download)",
+				manager.logger.Error("Failed to set queue position (may not be a download)",
 					"username", event.Username,
 					"filename", msg.Filename,
 					"place", msg.Place,

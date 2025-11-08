@@ -7,6 +7,15 @@ import (
 	"time"
 )
 
+// UploadRepository defines the database operations required by the UploadManager.
+type UploadRepository interface {
+	InsertUpload(username, filename string, status string, createdAt time.Time) error
+	UpdateUploadStatus(username, filename, status string, completedAt *time.Time) error
+	UpdateUploadProgress(username, filename string, bytesSent uint64, status string) error
+	UpdateUploadError(username, filename, errorMsg string, status string, completedAt *time.Time) error
+	UpdateUploadFileInfo(username, filename, realPath string, size uint64, token uint32) error
+}
+
 type UploadStatus string
 
 const (
@@ -102,15 +111,17 @@ type UploadManager struct {
 	mu                     sync.RWMutex
 	ttl                    time.Duration
 	logger                 *slog.Logger
+	db                     UploadRepository
 }
 
-func NewUploadManager(ttl time.Duration, logger *slog.Logger) *UploadManager {
+func NewUploadManager(ttl time.Duration, logger *slog.Logger, database UploadRepository) *UploadManager {
 	um := &UploadManager{
 		uploads:                make(map[UploadKey]*Upload),
 		uploadsByToken:         make(map[uint32]*Upload),
 		uploadsByUsernameToken: make(map[PendingUploadKey]*Upload),
 		ttl:                    ttl,
 		logger:                 logger,
+		db:                     database,
 	}
 	go um.cleanupCompletedUploads()
 	return um
@@ -139,6 +150,16 @@ func (um *UploadManager) CreateUpload(username, filename string) *Upload {
 	}
 
 	um.uploads[key] = upload
+
+	// Persist to database
+	if um.db != nil {
+		if err := um.db.InsertUpload(username, filename, string(UploadPending), upload.CreatedAt); err != nil {
+			um.logger.Error("Failed to insert upload to database",
+				"username", username,
+				"filename", filename,
+				"error", err)
+		}
+	}
 
 	um.logger.Info("Upload created",
 		"username", username,
@@ -195,6 +216,16 @@ func (um *UploadManager) CancelUpload(username, filename string) error {
 
 	upload.UpdateStatus(UploadCancelled)
 
+	// Persist to database
+	if um.db != nil {
+		if err := um.db.UpdateUploadStatus(username, filename, string(UploadCancelled), upload.CompletedAt); err != nil {
+			um.logger.Error("Failed to update upload cancellation in database",
+				"username", username,
+				"filename", filename,
+				"error", err)
+		}
+	}
+
 	um.logger.Info("Upload cancelled", "username", username, "filename", filename)
 	return nil
 }
@@ -206,6 +237,18 @@ func (um *UploadManager) UpdateProgress(username string, token uint32, bytesSent
 	}
 
 	upload.UpdateProgress(bytesSent)
+
+	// Persist to database
+	if um.db != nil {
+		status := upload.GetStatus()
+		if err := um.db.UpdateUploadProgress(username, upload.Filename, bytesSent, string(status)); err != nil {
+			um.logger.Error("Failed to update upload progress in database",
+				"username", username,
+				"filename", upload.Filename,
+				"error", err)
+		}
+	}
+
 	return nil
 }
 
@@ -216,6 +259,17 @@ func (um *UploadManager) UpdateStatus(username, filename string, status UploadSt
 	}
 
 	upload.UpdateStatus(status)
+
+	// Persist to database
+	if um.db != nil {
+		if err := um.db.UpdateUploadStatus(username, filename, string(status), upload.CompletedAt); err != nil {
+			um.logger.Error("Failed to update upload status in database",
+				"username", username,
+				"filename", filename,
+				"error", err)
+		}
+	}
+
 	um.logger.Info("Upload status updated",
 		"username", username,
 		"filename", filename,
@@ -232,6 +286,16 @@ func (um *UploadManager) SetError(username, filename string, errorMsg string) er
 	}
 
 	upload.SetError(errorMsg)
+
+	// Persist to database
+	if um.db != nil {
+		if err := um.db.UpdateUploadError(username, filename, errorMsg, string(UploadFailed), upload.CompletedAt); err != nil {
+			um.logger.Error("Failed to update upload error in database",
+				"username", username,
+				"filename", filename,
+				"error", err)
+		}
+	}
 
 	um.logger.Warn("Upload error",
 		"username", username,
@@ -256,7 +320,18 @@ func (um *UploadManager) SetFileInfo(username, filename, realPath string, size u
 	// Add to token lookup map
 	um.mu.Lock()
 	um.uploadsByToken[token] = upload
+	um.uploadsByUsernameToken[PendingUploadKey{Username: username, Token: token}] = upload
 	um.mu.Unlock()
+
+	// Persist to database
+	if um.db != nil {
+		if err := um.db.UpdateUploadFileInfo(username, filename, realPath, size, token); err != nil {
+			um.logger.Error("Failed to update upload file info in database",
+				"username", username,
+				"filename", filename,
+				"error", err)
+		}
+	}
 
 	um.logger.Info("Upload file info set",
 		"username", username,

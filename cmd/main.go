@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -23,12 +24,31 @@ type CLI struct {
 func (c *CLI) Run(args []string) error {
 	if len(args) < 1 {
 		fmt.Fprintln(c.output, "Usage:")
-		fmt.Fprintln(c.output, "  serve                          - Start the HTTP server")
-		fmt.Fprintln(c.output, "  tui                            - Start the TUI")
+		fmt.Fprintln(c.output, "  serve [flags]                  - Start the HTTP server")
+		fmt.Fprintln(c.output, "  tui [flags]                    - Start the TUI")
+		fmt.Fprintln(c.output, "")
+		fmt.Fprintln(c.output, "Flags:")
+		fmt.Fprintln(c.output, "  -username string               - Soulseek username (default: from config)")
+		fmt.Fprintln(c.output, "  -password string               - Soulseek password (default: from config)")
 		return fmt.Errorf("no command provided")
 	}
 
 	command := args[0]
+
+	// Create a FlagSet for parsing flags
+	fs := flag.NewFlagSet(command, flag.ContinueOnError)
+	fs.SetOutput(c.output)
+
+	username := fs.String("username", config.SOULSEEK_USERNAME, "Soulseek username")
+	password := fs.String("password", config.SOULSEEK_PASSWORD, "Soulseek password")
+
+	// Parse flags from remaining args
+	if len(args) > 1 {
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+	}
+
 	switch command {
 	case "serve":
 		logger := logging.NewHandler(nil, os.Stdout)
@@ -37,8 +57,8 @@ func (c *CLI) Run(args []string) error {
 		// 	AddSource: false,
 		// }, os.Stdout)
 		log := slog.New(logger)
-		slskClient := client.NewSlskClient(config.SOULSEEK_USERNAME, "server.slsknet.org", 2242, log)
-		err := slskClient.Connect(config.SOULSEEK_USERNAME, config.SOULSEEK_PASSWORD)
+		slskClient := client.NewSlskClient(*username, "server.slsknet.org", 2242, log)
+		err := slskClient.Connect(*username, *password)
 		if err != nil {
 			logging.LogFatal(log, "Failed to connect to soulseek", "err", err)
 		}
@@ -60,8 +80,8 @@ func (c *CLI) Run(args []string) error {
 		log := slog.New(fileHandler)
 
 		// Set up soulseek client
-		slskClient := client.NewSlskClient(config.SOULSEEK_USERNAME, "server.slsknet.org", 2242, log)
-		err = slskClient.Connect(config.SOULSEEK_USERNAME, config.SOULSEEK_PASSWORD)
+		slskClient := client.NewSlskClient(*username, "server.slsknet.org", 2242, log)
+		err = slskClient.Connect(*username, *password)
 		if err != nil {
 			logging.LogFatal(log, "Failed to connect to soulseek", "err", err)
 		}

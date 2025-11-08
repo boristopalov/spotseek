@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"spotseek/config"
+	db "spotseek/db"
 	"spotseek/slsk/downloads"
 	"spotseek/slsk/fileshare"
 	nc "spotseek/slsk/net"
@@ -87,13 +88,22 @@ func NewSlskClient(username string, host string, port int, logger *slog.Logger) 
 	if logger == nil {
 		return nil
 	}
+
+	engine, err := db.NewSqliteDB(db.DefaultDBPath())
+	if err != nil {
+		logger.Error("failed to create db", "error", err.Error())
+		return nil
+	}
+
 	shares := fileshare.NewShared(config.GetSettings(), logger)
 	distributedsearchCh := make(chan peer.DistribSearchMsg)
 	transferReqCh := make(chan peer.UploadStartMsg)
 	lifecycleEventCh := make(chan peer.PeerLifecycleEvent)
 	searchManager := NewSearchManager(10*time.Minute, logger)
-	downloadManager := downloads.NewDownloadManager(10*time.Minute, logger)
-	uploadManager := uploads.NewUploadManager(10*time.Minute, logger)
+	downloadRepo := db.NewDownloadRepository(engine)
+	uploadRepo := db.NewUploadRepository(engine)
+	downloadManager := downloads.NewDownloadManager(10*time.Minute, logger, downloadRepo)
+	uploadManager := uploads.NewUploadManager(10*time.Minute, logger, uploadRepo)
 
 	client := &SlskClient{
 		Username:             username,
@@ -129,11 +139,26 @@ func (c *SlskClient) Connect(username, pw string) error {
 	if err != nil {
 		return errors.New("unable to dial tcp connection; " + err.Error())
 	}
-	listener, err := net.Listen("tcp", ":2234")
-	if err != nil {
-		return errors.New("unable to listen on port 2234; " + err.Error())
+
+	// Try to find an available port starting from 2234
+	var listener net.Listener
+	startPort := 2234
+	maxPort := startPort + 100 // Try up to 100 ports
+	actualPort := 0
+
+	for port := startPort; port < maxPort; port++ {
+		listener, err = net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err == nil {
+			actualPort = port
+			c.logger.Info("Listening on port", "port", actualPort)
+			break
+		}
 	}
-	c.logger.Info("Listening on port 2234")
+
+	if listener == nil {
+		return fmt.Errorf("unable to find available port in range %d-%d", startPort, maxPort-1)
+	}
+
 	c.ServerConnection = &nc.Connection{Conn: conn}
 	c.Listener = listener
 
@@ -143,13 +168,13 @@ func (c *SlskClient) Connect(username, pw string) error {
 		for {
 			c.ListenForServerMessages()
 			c.Login(username, pw)
-			c.SetWaitPort(2234)
+			c.SetWaitPort(uint32(actualPort))
 			c.logger.Error("Server listener stopped, restarting...")
 		}
 	}()
 
 	c.Login(username, pw)
-	c.SetWaitPort(2234)
+	c.SetWaitPort(uint32(actualPort))
 	go c.ListenForIncomingPeers()
 	go c.listenForDistribSearches()
 	go c.listenForUploadRequests()

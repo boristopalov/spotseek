@@ -3,9 +3,11 @@ package peer
 import (
 	"bytes"
 	"compress/zlib"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"math/rand/v2"
+	"net"
 	"spotseek/slsk/fileshare"
 	"spotseek/slsk/messages"
 )
@@ -282,17 +284,6 @@ func (peer *DefaultPeer) handleTransferRequest(reader *messages.MessageReader) (
 			PeerUsername: peer.Username,
 		},
 	}
-	// peer.transfersMutex.Lock()
-	// if peer.pendingTransfers == nil {
-	// 	peer.pendingTransfers = make(map[uint32]*FileTransfer)
-	// }
-	// peer.pendingTransfers[token] = &FileTransfer{
-	// 	Filename:     filename,
-	// 	Size:         uint64(filesize),
-	// 	PeerUsername: peer.Username,
-	// 	Token:        token,
-	// }
-	// peer.transfersMutex.Unlock()
 
 	// Tell the peer we're ready to receive
 	// We expect to recieve an "F" connection after this
@@ -375,18 +366,19 @@ func (peer *DefaultPeer) handlePlaceInQueueResponse(reader *messages.MessageRead
 	}, nil
 }
 
-// UploadFailed handling
 func (peer *DefaultPeer) handleUploadFailed(reader *messages.MessageReader) (map[string]any, error) {
 	filename := reader.ReadString()
 
 	peer.logger.Info("Received UploadFailed", "peer", peer.Username, "filename", filename)
+	peer.mgrCh <- PeerEvent{Type: DownloadFailed, Username: peer.Username, Host: peer.Host, Port: peer.Port, Msg: DownloadFailedMsg{Username: peer.Username, Filename: filename, Error: "received UploadFailed from peer"}}
+
 	return map[string]any{
 		"type":     "UploadFailed",
 		"filename": filename,
 	}, nil
+
 }
 
-// UploadDenied handling
 func (peer *DefaultPeer) handleUploadDenied(reader *messages.MessageReader) (map[string]any, error) {
 	filename := reader.ReadString()
 	reason := reader.ReadString()
@@ -576,4 +568,83 @@ func (peer *DefaultPeer) PlaceInQueueRequest(filename string) {
 	mb.AddString(filename)
 
 	peer.SendMessage(mb.Build(51))
+}
+
+func (peer *DefaultPeer) Listen() {
+	readBuffer := make([]byte, 4096)
+	var currentMessage []byte
+	var messageLength uint32
+
+	defer func() {
+		peer.mgrCh <- PeerEvent{Type: PeerDisconnected, Username: peer.Username, Host: peer.Host, Port: peer.Port}
+	}()
+
+	for {
+		n, err := peer.Conn.Read(readBuffer)
+		if err != nil {
+			if err == io.EOF {
+				peer.logger.Warn("Peer closed the connection",
+					"peer", peer.Username)
+				return
+			}
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				peer.logger.Error("Timeout reading from peer, retrying...",
+					"peer", peer.Username)
+				continue
+			}
+			peer.logger.Error("Error reading from peer",
+				"peer", peer.Username,
+				"err", err)
+			return
+		}
+		peer.logger.Debug("received message from peer",
+			"length", n,
+			"peer", peer.Username)
+		currentMessage = append(currentMessage, readBuffer[:n]...)
+		currentMessage, messageLength = peer.processMessage(currentMessage, messageLength)
+	}
+}
+
+func (peer *DefaultPeer) processMessage(data []byte, messageLength uint32) ([]byte, uint32) {
+	if len(data) == 0 {
+		return data, messageLength
+	}
+	for {
+		if messageLength == 0 {
+			if len(data) < 4 {
+				return data, messageLength // Not enough data to read message length
+			}
+			messageLength = binary.LittleEndian.Uint32(data[:4])
+			data = data[4:]
+		}
+
+		if uint32(len(data)) < messageLength {
+			return data, messageLength // Not enough data for full message
+		}
+
+		// sometimes the message length in the msg is different than actual buffer length
+		// this seems to only happen for file search responses
+		// maybe a different protocol version
+		defer func() {
+			if r := recover(); r != nil {
+				peer.logger.Error("recovered from panic",
+					"error", r,
+				)
+			}
+		}()
+
+		if err := peer.handleMessage(data[:messageLength], messageLength); err != nil {
+			peer.logger.Error("Error handling peer message",
+				"err", err,
+				"length", messageLength,
+				"peer", peer.Username)
+		}
+
+		data = data[messageLength:]
+		messageLength = 0
+
+		if len(data) == 0 {
+			return data, messageLength
+		}
+	}
 }

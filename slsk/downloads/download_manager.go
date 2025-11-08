@@ -8,6 +8,16 @@ import (
 	"time"
 )
 
+// DownloadRepository defines the database operations required by the DownloadManager.
+type DownloadRepository interface {
+	InsertDownload(username, filename string, size uint64, status string, token uint32, createdAt time.Time) error
+	UpdateDownloadStatus(username, filename, status string, completedAt *time.Time) error
+	UpdateDownloadProgress(username, filename string, bytesReceived uint64, status string) error
+	UpdateDownloadError(username, filename, errorMsg string, status string, completedAt *time.Time) error
+	UpdateDownloadQueuePosition(username, filename string, position uint32, status string) error
+	UpdateDownloadToken(username, filename string, token uint32) error
+}
+
 type DownloadStatus string
 
 const (
@@ -96,14 +106,16 @@ type DownloadManager struct {
 	mu            sync.RWMutex
 	ttl           time.Duration
 	logger        *slog.Logger
+	db            DownloadRepository
 }
 
-func NewDownloadManager(ttl time.Duration, logger *slog.Logger) *DownloadManager {
+func NewDownloadManager(ttl time.Duration, logger *slog.Logger, database DownloadRepository) *DownloadManager {
 	dm := &DownloadManager{
 		downloads:     make(map[DownloadKey]*Download),
 		pendingByPeer: make(map[string][]DownloadKey),
 		ttl:           ttl,
 		logger:        logger,
+		db:            database,
 	}
 	go dm.cleanupCompletedDownloads()
 	return dm
@@ -134,6 +146,16 @@ func (dm *DownloadManager) CreateDownload(username, filename string, token uint3
 	}
 
 	dm.downloads[key] = download
+
+	// Persist to database
+	if dm.db != nil {
+		if err := dm.db.InsertDownload(username, filename, size, string(DownloadPending), token, download.CreatedAt); err != nil {
+			dm.logger.Error("Failed to insert download to database",
+				"username", username,
+				"filename", filename,
+				"error", err)
+		}
+	}
 
 	dm.logger.Info("Download created",
 		"username", username,
@@ -174,6 +196,16 @@ func (dm *DownloadManager) CancelDownload(username, filename string) error {
 
 	download.UpdateStatus(DownloadCancelled)
 
+	// Persist to database
+	if dm.db != nil {
+		if err := dm.db.UpdateDownloadStatus(username, filename, string(DownloadCancelled), download.CompletedAt); err != nil {
+			dm.logger.Error("Failed to update download cancellation in database",
+				"username", username,
+				"filename", filename,
+				"error", err)
+		}
+	}
+
 	// Remove from active downloads
 	dm.mu.Lock()
 	key := DownloadKey{Username: username, Filename: filename}
@@ -191,6 +223,18 @@ func (dm *DownloadManager) UpdateProgress(username, filename string, bytesReceiv
 	}
 
 	download.UpdateProgress(bytesReceived)
+
+	// Persist to database
+	if dm.db != nil {
+		status := download.GetStatus()
+		if err := dm.db.UpdateDownloadProgress(username, filename, bytesReceived, string(status)); err != nil {
+			dm.logger.Error("Failed to update download progress in database",
+				"username", username,
+				"filename", filename,
+				"error", err)
+		}
+	}
+
 	return nil
 }
 
@@ -201,6 +245,17 @@ func (dm *DownloadManager) UpdateStatus(username, filename string, status Downlo
 	}
 
 	download.UpdateStatus(status)
+
+	// Persist to database
+	if dm.db != nil {
+		if err := dm.db.UpdateDownloadStatus(username, filename, string(status), download.CompletedAt); err != nil {
+			dm.logger.Error("Failed to update download status in database",
+				"username", username,
+				"filename", filename,
+				"error", err)
+		}
+	}
+
 	dm.logger.Info("Download status updated",
 		"username", username,
 		"filename", filename,
@@ -229,6 +284,16 @@ func (dm *DownloadManager) SetError(username, filename string, errorMsg string) 
 
 	download.SetError(errorMsg)
 
+	// Persist to database
+	if dm.db != nil {
+		if err := dm.db.UpdateDownloadError(username, filename, errorMsg, string(DownloadFailed), download.CompletedAt); err != nil {
+			dm.logger.Error("Failed to update download error in database",
+				"username", username,
+				"filename", filename,
+				"error", err)
+		}
+	}
+
 	// Remove from active downloads immediately (allows re-download)
 	dm.mu.Lock()
 	key := DownloadKey{Username: username, Filename: filename}
@@ -250,6 +315,17 @@ func (dm *DownloadManager) SetQueuePosition(username, filename string, position 
 	}
 
 	download.SetQueuePosition(position)
+
+	// Persist to database
+	if dm.db != nil {
+		if err := dm.db.UpdateDownloadQueuePosition(username, filename, position, string(DownloadQueued)); err != nil {
+			dm.logger.Error("Failed to update download queue position in database",
+				"username", username,
+				"filename", filename,
+				"error", err)
+		}
+	}
+
 	dm.logger.Info("Download queue position updated",
 		"username", username,
 		"filename", filename,
@@ -267,6 +343,16 @@ func (dm *DownloadManager) SetToken(username, filename string, token uint32) err
 	download.mu.Lock()
 	download.Token = token
 	download.mu.Unlock()
+
+	// Persist to database
+	if dm.db != nil {
+		if err := dm.db.UpdateDownloadToken(username, filename, token); err != nil {
+			dm.logger.Error("Failed to update download token in database",
+				"username", username,
+				"filename", filename,
+				"error", err)
+		}
+	}
 
 	dm.logger.Info("Set transfer token",
 		"username", username,

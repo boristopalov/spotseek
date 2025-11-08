@@ -234,7 +234,6 @@ func (c *SlskClient) HandleGetPeerAddress(mr *messages.MessageReader) (map[strin
 				// send any search results we have stored for this peer
 				storedSearchResultsForPeer := c.SearchResults[username]
 				for _, res := range storedSearchResultsForPeer {
-					c.logger.Info("found stored search results for peer that we can send now", "username", username, "token", res.token, "files", res.files)
 					peer.FileSearchResponse(username, res.token, res.files)
 				}
 				delete(c.SearchResults, username)

@@ -1,10 +1,8 @@
 package peer
 
 import (
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	nc "spotseek/slsk/net"
@@ -85,7 +83,6 @@ type DefaultPeer struct {
 	*PeerConnection
 	mgrCh            chan<- PeerEvent
 	pendingTransfers map[uint32]*FileTransfer
-	transfersMutex   sync.RWMutex
 }
 
 // DistributedPeer handles distributed network operations
@@ -190,98 +187,6 @@ func (pc *PeerConnection) Close() {
 
 func (pc *PeerConnection) Read(buf []byte) (int, error) {
 	return pc.Conn.Read(buf)
-}
-
-func (pc *PeerConnection) GetUsername() string {
-	return pc.Username
-}
-
-func (pc *PeerConnection) GetHost() string {
-	return pc.Host
-}
-
-func (pc *PeerConnection) GetPort() uint32 {
-	return pc.Port
-}
-
-// DefaultPeer methods
-func (peer *DefaultPeer) Listen() {
-	readBuffer := make([]byte, 4096)
-	var currentMessage []byte
-	var messageLength uint32
-
-	defer func() {
-		peer.mgrCh <- PeerEvent{Type: PeerDisconnected, Username: peer.Username, Host: peer.Host, Port: peer.Port}
-	}()
-
-	for {
-		n, err := peer.Conn.Read(readBuffer)
-		if err != nil {
-			if err == io.EOF {
-				peer.logger.Warn("Peer closed the connection",
-					"peer", peer.Username)
-				return
-			}
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				peer.logger.Error("Timeout reading from peer, retrying...",
-					"peer", peer.Username)
-				continue
-			}
-			peer.logger.Error("Error reading from peer",
-				"peer", peer.Username,
-				"err", err)
-			return
-		}
-		peer.logger.Debug("received message from peer",
-			"length", n,
-			"peer", peer.Username)
-		currentMessage = append(currentMessage, readBuffer[:n]...)
-		currentMessage, messageLength = peer.processMessage(currentMessage, messageLength)
-	}
-}
-
-func (peer *DefaultPeer) processMessage(data []byte, messageLength uint32) ([]byte, uint32) {
-	if len(data) == 0 {
-		return data, messageLength
-	}
-	for {
-		if messageLength == 0 {
-			if len(data) < 4 {
-				return data, messageLength // Not enough data to read message length
-			}
-			messageLength = binary.LittleEndian.Uint32(data[:4])
-			data = data[4:]
-		}
-
-		if uint32(len(data)) < messageLength {
-			return data, messageLength // Not enough data for full message
-		}
-
-		// sometimes the message length in the msg is different than actual buffer length
-		// this seems to only happen for file search responses
-		// maybe a different protocol version
-		defer func() {
-			if r := recover(); r != nil {
-				peer.logger.Error("recovered from panic",
-					"error", r,
-				)
-			}
-		}()
-
-		if err := peer.handleMessage(data[:messageLength], messageLength); err != nil {
-			peer.logger.Error("Error handling peer message",
-				"err", err,
-				"length", messageLength,
-				"peer", peer.Username)
-		}
-
-		data = data[messageLength:]
-		messageLength = 0
-
-		if len(data) == 0 {
-			return data, messageLength
-		}
-	}
 }
 
 // typical order of operations for searching and downloading
