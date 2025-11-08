@@ -418,7 +418,7 @@ func (manager *PeerManager) listenForEvents() {
 
 			_, err := manager.downloadManager.CreateDownload(
 				msg.PeerUsername,
-				msg.Filename, // This is the real path from our shares
+				msg.Filename,
 				msg.Token,
 				msg.Size,
 			)

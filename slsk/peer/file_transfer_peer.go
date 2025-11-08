@@ -61,7 +61,7 @@ func (peer *FileTransferPeer) FileListen(transfer *FileTransfer) {
 
 	peer.FileOffset(transfer.Offset)
 
-	transferBuf := bytes.NewBuffer(make([]byte, transfer.Size))
+	transferBuf := bytes.NewBuffer(make([]byte, 0, transfer.Size))
 
 	// After sending FileOffset, give the peer up to 30 seconds to start sending data
 	// This accounts for upload queue processing, file opening, and seeking to offset

@@ -112,5 +112,18 @@ func (peer *DistributedPeer) handleBranchRoot(mr *messages.MessageReader) (map[s
 }
 
 func (peer *DistributedPeer) handleDistributedMessage(mr *messages.MessageReader) {
-	peer.handleDistribMessage(mr.Message)
+	embeddedData := mr.Message
+	if len(embeddedData) == 0 {
+		return
+	}
+
+	// Prevent infinite recursion: embedded messages should not contain code 93
+	code := embeddedData[0]
+	if code == 93 {
+		peer.logger.Warn("Received nested DistribEmbeddedMessage (code 93), ignoring to prevent infinite recursion",
+			"peer", peer.Username)
+		return
+	}
+
+	peer.handleDistribMessage(embeddedData)
 }
