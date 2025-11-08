@@ -95,11 +95,12 @@ func (h *APIHandler) Download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.client.DownloadManager.AddPendingForPeer(req.Username, req.Filename)
+
 	// Check if peer connection exists
 	peer := h.client.PeerManager.GetDefaultPeer(req.Username)
 	if peer == nil {
 		// Peer not connected yet - add to pending downloads queue in DownloadManager
-		h.client.DownloadManager.AddPendingForPeer(req.Username, req.Filename)
 
 		// Auto-connect to peer
 		h.client.RequestPeerConnection(req.Username, "P", 0, false)
