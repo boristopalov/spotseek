@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"spotseek/config"
@@ -15,6 +16,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/cors"
 )
 
 type CLI struct {
@@ -41,6 +43,9 @@ func (c *CLI) Run(args []string) error {
 
 	username := fs.String("username", config.SOULSEEK_USERNAME, "Soulseek username")
 	password := fs.String("password", config.SOULSEEK_PASSWORD, "Soulseek password")
+	clientID := fs.String("client-id", "", "Client ID for multi-client setup")
+	apiPort := fs.Int("api-port", 0, "API server port (0 = auto-discover)")
+	peerPort := fs.Int("peer-port", 0, "Peer listener port (0 = auto-discover)")
 
 	// Parse flags from remaining args
 	if len(args) > 1 {
@@ -57,12 +62,12 @@ func (c *CLI) Run(args []string) error {
 		// 	AddSource: false,
 		// }, os.Stdout)
 		log := slog.New(logger)
-		slskClient := client.NewSlskClient(*username, "server.slsknet.org", 2242, log)
-		err := slskClient.Connect(*username, *password)
+		slskClient := client.NewSlskClient(*clientID, *username, "server.slsknet.org", 2242, log)
+		err := slskClient.Connect(*username, *password, *peerPort)
 		if err != nil {
 			logging.LogFatal(log, "Failed to connect to soulseek", "err", err)
 		}
-		return startServer(slskClient)
+		return startServer(slskClient, *apiPort)
 
 	case "tui":
 		logFile, err := os.OpenFile("spotseek.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -80,8 +85,8 @@ func (c *CLI) Run(args []string) error {
 		log := slog.New(fileHandler)
 
 		// Set up soulseek client
-		slskClient := client.NewSlskClient(*username, "server.slsknet.org", 2242, log)
-		err = slskClient.Connect(*username, *password)
+		slskClient := client.NewSlskClient(*clientID, *username, "server.slsknet.org", 2242, log)
+		err = slskClient.Connect(*username, *password, *peerPort)
 		if err != nil {
 			logging.LogFatal(log, "Failed to connect to soulseek", "err", err)
 		}
@@ -106,10 +111,22 @@ func (c *CLI) Run(args []string) error {
 	}
 }
 
-func startServer(slskClient *client.SlskClient) error {
+func startServer(slskClient *client.SlskClient, apiPort int) error {
 	mux := chi.NewRouter()
+
+	// Add CORS middleware
+	mux.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"http://*", "https://*"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: false,
+		MaxAge:           300,
+	}))
+
 	handler := api.NewAPIHandler(slskClient)
 
+	mux.Get("/status", handler.Status)
 	mux.Get("/connect/user/{username}/conn/{connType}", handler.ConnectToPeer)
 	mux.Post("/search", handler.Search)
 	mux.Get("/search/{id}", handler.GetSearch)
@@ -125,8 +142,32 @@ func startServer(slskClient *client.SlskClient) error {
 	mux.Get("/peers", handler.GetPeers)
 	mux.Get("/check-port", handler.CheckPort)
 
-	fmt.Println("Starting HTTP server on localhost:3000")
-	return http.ListenAndServe("localhost:3000", mux)
+	if apiPort > 0 {
+		// Use specified port
+		addr := fmt.Sprintf("localhost:%d", apiPort)
+		listener, err := net.Listen("tcp", addr)
+		if err != nil {
+			return fmt.Errorf("unable to listen on specified API port %d: %w", apiPort, err)
+		}
+		fmt.Printf("Starting HTTP server on %s\n", addr)
+		return http.Serve(listener, mux)
+	}
+
+	// Auto-discover an available port
+	startPort := 3000
+	maxPort := 3000 + 100
+
+	for port := startPort; port <= maxPort; port++ {
+		addr := fmt.Sprintf("localhost:%d", port)
+		listener, err := net.Listen("tcp", addr)
+		if err == nil {
+			// Found a free port
+			fmt.Printf("Starting HTTP server on %s\n", addr)
+			return http.Serve(listener, mux)
+		}
+	}
+
+	return fmt.Errorf("no free port found in range %d-%d", startPort, maxPort)
 }
 
 func main() {

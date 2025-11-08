@@ -58,6 +58,7 @@ type SearchResult struct {
 }
 
 type SlskClient struct {
+	ClientID         string // identifier for multi-client setup
 	Username         string // username of user logged in TODO: do i need this
 	Host             string
 	Port             int
@@ -84,7 +85,7 @@ type SlskClient struct {
 	shares *fileshare.Shared
 }
 
-func NewSlskClient(username string, host string, port int, logger *slog.Logger) *SlskClient {
+func NewSlskClient(clientID string, username string, host string, port int, logger *slog.Logger) *SlskClient {
 	if logger == nil {
 		return nil
 	}
@@ -106,6 +107,7 @@ func NewSlskClient(username string, host string, port int, logger *slog.Logger) 
 	uploadManager := uploads.NewUploadManager(10*time.Minute, logger, uploadRepo)
 
 	client := &SlskClient{
+		ClientID:             clientID,
 		Username:             username,
 		Host:                 host,
 		Port:                 port,
@@ -127,7 +129,7 @@ func NewSlskClient(username string, host string, port int, logger *slog.Logger) 
 }
 
 // Connect to soulseek server and login
-func (c *SlskClient) Connect(username, pw string) error {
+func (c *SlskClient) Connect(username, pw string, peerPort int) error {
 	// Set up our shared files
 	stats := c.shares.GetShareStats()
 	c.logger.Info("share stats", "stats", stats)
@@ -140,23 +142,35 @@ func (c *SlskClient) Connect(username, pw string) error {
 		return errors.New("unable to dial tcp connection; " + err.Error())
 	}
 
-	// Try to find an available port starting from 2234
+	// Set up peer listener
 	var listener net.Listener
-	startPort := 2234
-	maxPort := startPort + 100 // Try up to 100 ports
 	actualPort := 0
 
-	for port := startPort; port < maxPort; port++ {
-		listener, err = net.Listen("tcp", fmt.Sprintf(":%d", port))
-		if err == nil {
-			actualPort = port
-			c.logger.Info("Listening on port", "port", actualPort)
-			break
+	if peerPort > 0 {
+		// Use specified port
+		listener, err = net.Listen("tcp", fmt.Sprintf(":%d", peerPort))
+		if err != nil {
+			return fmt.Errorf("unable to listen on specified port %d: %w", peerPort, err)
 		}
-	}
+		actualPort = peerPort
+		c.logger.Info("Listening on specified port", "port", actualPort)
+	} else {
+		// Auto-discover an available port starting from 2234
+		startPort := 2234
+		maxPort := startPort + 100 // Try up to 100 ports
 
-	if listener == nil {
-		return fmt.Errorf("unable to find available port in range %d-%d", startPort, maxPort-1)
+		for port := startPort; port < maxPort; port++ {
+			listener, err = net.Listen("tcp", fmt.Sprintf(":%d", port))
+			if err == nil {
+				actualPort = port
+				c.logger.Info("Listening on port", "port", actualPort)
+				break
+			}
+		}
+
+		if listener == nil {
+			return fmt.Errorf("unable to find available port in range %d-%d", startPort, maxPort-1)
+		}
 	}
 
 	c.ServerConnection = &nc.Connection{Conn: conn}

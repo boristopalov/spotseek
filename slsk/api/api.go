@@ -307,3 +307,16 @@ func (h *APIHandler) GetPeers(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(peers)
 }
+
+func (h *APIHandler) Status(w http.ResponseWriter, r *http.Request) {
+	connected := h.client.ServerConnection != nil && h.client.ServerConnection.Conn != nil
+	peerCount := len(h.client.PeerManager.GetAllPeers())
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"clientId":  h.client.ClientID,
+		"username":  h.client.Username,
+		"connected": connected,
+		"peers":     peerCount,
+	})
+}
